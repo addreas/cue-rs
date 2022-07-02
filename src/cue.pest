@@ -1,4 +1,6 @@
 newline        = _{ "\u{000A}" }
+dq             = _{ "\"" }
+sq             = _{ "'" }
 unicode_char   = _{ !newline ~ ANY }
 unicode_letter = _{ LETTER }
 unicode_digit  = _{ DECIMAL_NUMBER }
@@ -11,23 +13,23 @@ hex_digit     = _{ '0'..'9' | 'A'..'F' | 'a'..'f' }
 
 identifier = _{ ("#" | "_#")? ~ letter ~ (letter | unicode_digit)* }
 
-int_lit     = _{ decimals | si_lit | octal_lit | binary_lit | hex_lit }
 decimals    = _{ decimal_digit ~ ( "_"? ~ decimal_digit )* }
-si_it       = _{ (decimals ~ ("." ~  decimals)? ~ multiplier)
+si_lit      = _{ (decimals ~ ("." ~  decimals)? ~ multiplier)
                | ("." ~ decimals ~  multiplier)
                }
-binary_lit  = _{ "0b" ~ binary_digit ~ binary_digit* }
+binary_lit  = _{ "0b" ~ binary_digit ~ ( "_"? ~ binary_digit )* }
+octal_lit   = _{ "0o" ~ octal_digit ~ ( "_"? ~ octal_digit )* }
 hex_lit     = _{ "0" ~ ( "x" | "X" ) ~ hex_digit ~ ("_"? ~ hex_digit )* }
-octal_lit   = _{ "0o" ~ octal_digit  ~ ("_"? ~ octal_digit )* }
 multiplier  = _{ ("K" | "M" | "G" | "T" | "P" ) ~ "i"? }
+exponent    = _{ ("e" | "E") ~ ("+" | "-")? ~ decimals}
 
+int_lit     = _{ decimals | si_lit | octal_lit | binary_lit | hex_lit }
 float_lit = _{ (decimals ~ "." ~ decimals? ~ exponent?)
              | (decimals ~ exponent)
              | ("." ~ decimals ~ exponent? )
              }
-exponent = _{ ("e" | "E") ~ ("+" | "-")? ~ decimals}
 
-escaped_char     = _{ "\\" ~ PEEK ~ ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | "\\" | "'" | '"' ) }
+escaped_char     = _{ "\\" ~ PEEK ~ ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | "\\" | sq | dq ) }
 octal_byte_value = _{ "\\" ~ PEEK ~ octal_digit{3} }
 hex_byte_value   = _{ "\\" ~ PEEK ~ "x" ~ hex_digit{2} }
 little_u_value   = _{ "\\" ~ PEEK ~ "u" ~ hex_digit{4} }
@@ -42,17 +44,24 @@ string_lit       = @{ PUSH("#"*) ~ ( simple_string_lit
                                    | multiline_bytes_lit
                                    ) ~ POP }
 
-simple_string_lit    = _{ '"' ~ ( unicode_value | interpolation )* ~ '"' }
-simple_bytes_lit     = _{ "'" ~ ( unicode_value | interpolation | byte_value )* ~ "'" }
-multiline_string_lit = _{ '"'{3} ~ newline ~
-                             ( unicode_value | interpolation | newline )* ~
-                             newline ~ '"'{3} }
-multiline_bytes_lit  = _{ "'''" ~ newline ~
-                             ( unicode_value | interpolation | byte_value | newline )* ~
-                             ~ newline ~ "'''" }
+simple_string_lit    = _{ dq ~ ( unicode_value | interpolation )* ~ dq }
+simple_bytes_lit     = _{ sq ~ ( unicode_value | interpolation | byte_value )* ~ sq }
+multiline_string_lit = _{ dq{3}
+                        ~ newline
+                        ~ ( unicode_value | interpolation | newline )*
+                        ~ newline
+                        ~ dq{3} }
+multiline_bytes_lit  = _{ sq{3}
+                        ~ newline
+                        ~ ( unicode_value | interpolation | byte_value | newline )*
+                        ~ newline
+                        ~ sq{3} }
 
+bottom_lit = _{ "_|_" }
+null_lit   = _{ "null" }
+bool_lit   = _{ "true" | "false" }
 
-Structlit       = { "{" ~ ( Declaration ~ "," )* ~ "}" }
+StructLit       = { "{" ~ ( Declaration ~ "," )* ~ "}" }
 Declaration     = { Field | Ellipsis | Embedding | LetClause | attribute }
 Ellipsis        = { "..." ~ Expression? }
 Embedding       = { Comprehension | AliasExpr }
@@ -67,35 +76,35 @@ attr_tokens     = _{ (        attr_token
                      | ( "[" ~ attr_tokens ~ "]" )
                      | ( "{" ~ attr_tokens ~ "}" )
                      )* }
-attr_token      = _{ !( '(' | ')' | '[' | ']' | '{' | '}' ) ~ ANY }
-
+attr_token      = _{ !( "(" | ")" | "[" | "]" | "{" | "}" ) ~ ANY }
 
 AliasExpr  = { ( identifier ~ "=" )? ~ Expression }
 
 ListLit       = { "[" ~ ( ElementList ~ ","? )? ~ "]" }
-ElementList   = { Ellipsis | ( Embedding ~ ( "," Embedding )* ~ ( "," ~ Ellipsis )? }
+ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellipsis )? ) }
 
-Operand     = { Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
 Literal     = { BasicLit | ListLit | StructLit }
+Operand     = { Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
 BasicLit    = { int_lit | float_lit | string_lit | null_lit | bool_lit | bottom_lit }
 OperandName = { identifier | QualifiedIdent }
 
 QualifiedIdent = { PackageName ~ "." ~ identifier }
 
-PrimaryExpr = {	Operand
-              | ( PrimaryExpr ~  Selector )
-              | ( PrimaryExpr ~  Index )
-              | ( PrimaryExpr ~  Slice )
-              | ( PrimaryExpr ~  Arguments )
-              }
-
 Selector       = { "." ~ (identifier | simple_string_lit) }
 Index          = { "[" ~ Expression ~ "]" }
+Slice          = { "[" ~ Expression? ~ ":" ~ Expression? ~ "]" }
 Argument       = { Expression }
-Arguments      = { "(" ~ ( ( Argument ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
+Arguments      = { "(" ~ ( ( Argument ~ ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
 
-Expression = { UnaryExpr | ( Expression ~ binary_op ~ Expression ) }
+PrimaryExpr = {	Operand
+              | ( PrimaryExpr ~ Selector )
+              | ( PrimaryExpr ~ Index )
+              | ( PrimaryExpr ~ Slice )
+              | ( PrimaryExpr ~ Arguments )
+              }
+
 UnaryExpr  = { PrimaryExpr | ( unary_op ~ UnaryExpr ) }
+Expression = { UnaryExpr | ( Expression ~ binary_op ~ Expression ) }
 
 binary_op  = { "|" | "&" | "||" | "&&" | "==" | rel_op | add_op | mul_op  }
 rel_op     = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
@@ -112,20 +121,19 @@ ForClause     = { "for" ~ identifier ~ ( "," ~ identifier )? ~ "in" ~ Expression
 GuardClause   = { "if" ~ Expression }
 LetClause     = { "let" ~ identifier ~ "=" ~ Expression }
 
+PackageClause = { "package" ~ PackageName }
+PackageName   = { identifier }
 
-package_clause = { "package" ~ package_name }
-package_name = { identifier }
+ImportDecl     = { "import" ~ ( ImportSpec | ("(" ~ ImportSpec* ~ ")") ) }
+ImportSpec     = { PackageName? ~ ImportPath }
+ImportLocation = { unicode_value }
+ImportPath     = { "\"" ~ ImportLocation ~ (":" ~ identifier)? ~ "\"" }
 
-import_decl = { "import" ~ ( import_spec | {"(" ~ (import_spec)* ~ ")"} ) }
-import_spec = { package_name? ~ import_path }
-import_location = { unicode_value }
-import_path = {"\"" ~ import_location ~ (":" ~ identifier)? ~ "\"" }
-
-source_file = { SOI 
+SourceFile = { SOI 
     ~ (attribute ~ ",")*
-    ~ (package_clause)?
-    ~ (import_decl)
-    ~ (declaration)*
+    ~ (PackageClause)?
+    ~ (ImportDecl)
+    ~ (Declaration)*
     ~ EOI}
 
 COMMENT = _{ "//" ~ (!newline ~ ANY)* ~ newline }
