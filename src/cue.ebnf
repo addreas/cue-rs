@@ -1,0 +1,126 @@
+// https://cuelang.org/docs/references/spec/
+
+newline        = /* the Unicode code point U+000A */ .
+unicode_char   = /* an arbitrary Unicode code point except newline */ .
+unicode_letter = /* a Unicode code point classified as "Letter" */ .
+unicode_digit  = /* a Unicode code point classified as "Number, decimal digit" */ .
+
+letter        = unicode_letter | "_" | "$" .
+decimal_digit = "0" … "9" .
+binary_digit  = "0" … "1" .
+octal_digit   = "0" … "7" .
+hex_digit     = "0" … "9" | "A" … "F" | "a" … "f" .
+
+identifier  = [ "#" | "_#" ] letter { letter | unicode_digit } .
+
+int_lit     = decimal_lit | si_lit | octal_lit | binary_lit | hex_lit .
+decimal_lit = "0" | ( "1" … "9" ) { [ "_" ] decimal_digit } .
+decimals    = decimal_digit { [ "_" ] decimal_digit } .
+si_it       = decimals [ "." decimals ] multiplier |
+              "." decimals  multiplier .
+binary_lit  = "0b" binary_digit { binary_digit } .
+hex_lit     = "0" ( "x" | "X" ) hex_digit { [ "_" ] hex_digit } .
+octal_lit   = "0o" octal_digit { [ "_" ] octal_digit } .
+multiplier  = ( "K" | "M" | "G" | "T" | "P" ) [ "i" ]
+
+float_lit   = decimals "." [ decimals ] [ exponent ] |
+              decimals exponent |
+              "." decimals [ exponent ].
+exponent    = ( "e" | "E" ) [ "+" | "-" ] decimals .
+
+escaped_char     = `\` { `#` } ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | `\` | "'" | `"` ) .
+byte_value       = octal_byte_value | hex_byte_value .
+octal_byte_value = `\` { `#` } octal_digit octal_digit octal_digit .
+hex_byte_value   = `\` { `#` } "x" hex_digit hex_digit .
+little_u_value   = `\` { `#` } "u" hex_digit hex_digit hex_digit hex_digit .
+big_u_value      = `\` { `#` } "U" hex_digit hex_digit hex_digit hex_digit
+                           hex_digit hex_digit hex_digit hex_digit .
+unicode_value    = unicode_char | little_u_value | big_u_value | escaped_char .
+interpolation    = "\" { `#` } "(" Expression ")" .
+
+string_lit       = simple_string_lit |
+                   multiline_string_lit |
+                   simple_bytes_lit |
+                   multiline_bytes_lit |
+                   `#` string_lit `#` .
+
+simple_string_lit    = `"` { unicode_value | interpolation } `"` .
+simple_bytes_lit     = `'` { unicode_value | interpolation | byte_value } `'` .
+multiline_string_lit = `"""` newline
+                             { unicode_value | interpolation | newline }
+                             newline `"""` .
+multiline_bytes_lit  = "'''" newline
+                             { unicode_value | interpolation | byte_value | newline }
+                             newline "'''" .
+
+StructLit       = "{" { Declaration "," } "}" .
+Declaration     = Field | Ellipsis | Embedding | LetClause | attribute .
+Ellipsis        = "..." [ Expression ] .
+Embedding       = Comprehension | AliasExpr .
+Field           = Label ":" { Label ":" } AliasExpr { attribute } .
+Label           = [ identifier "=" ] LabelExpr .
+LabelExpr       = LabelName [ "?" ] | "[" AliasExpr "]" .
+LabelName       = identifier | simple_string_lit  .
+
+attribute       = "@" identifier "(" attr_tokens ")" .
+attr_tokens     = { attr_token |
+                    "(" attr_tokens ")" |
+                    "[" attr_tokens "]" |
+                    "{" attr_tokens "}" } .
+attr_token      = /* any token except '(', ')', '[', ']', '{', or '}' */
+
+
+AliasExpr  = [ identifier "=" ] Expression .
+
+ListLit       = "[" [ ElementList [ "," ] ] "]" .
+ElementList   = Ellipsis | Embedding { "," Embedding } [ "," Ellipsis ] .
+
+Operand     = Literal | OperandName | "(" Expression ")" .
+Literal     = BasicLit | ListLit | StructLit .
+BasicLit    = int_lit | float_lit | string_lit |
+              null_lit | bool_lit | bottom_lit .
+OperandName = identifier | QualifiedIdent .
+
+QualifiedIdent = PackageName "." identifier .
+
+PrimaryExpr =
+	Operand |
+	PrimaryExpr Selector |
+	PrimaryExpr Index |
+	PrimaryExpr Slice |
+	PrimaryExpr Arguments .
+
+Selector       = "." (identifier | simple_string_lit) .
+Index          = "[" Expression "]" .
+Argument       = Expression .
+Arguments      = "(" [ ( Argument { "," Argument } ) [ "," ] ] ")" .
+
+Expression = UnaryExpr | Expression binary_op Expression .
+UnaryExpr  = PrimaryExpr | unary_op UnaryExpr .
+
+binary_op  = "|" | "&" | "||" | "&&" | "==" | rel_op | add_op | mul_op  .
+rel_op     = "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" .
+add_op     = "+" | "-" .
+mul_op     = "*" | "/" .
+unary_op   = "+" | "-" | "!" | "*" | rel_op .
+
+Comprehension       = Clauses StructLit .
+
+Clauses             = StartClause { [ "," ] Clause } .
+StartClause         = ForClause | GuardClause .
+Clause              = StartClause | LetClause .
+ForClause           = "for" identifier [ "," identifier ] "in" Expression .
+GuardClause         = "if" Expression .
+LetClause           = "let" identifier "=" Expression .
+
+SourceFile = { attribute "," } [ PackageClause "," ] { ImportDecl "," } { Declaration "," } .
+
+PackageClause  = "package" PackageName .
+PackageName    = identifier .
+
+ImportDecl       = "import" ( ImportSpec | "(" { ImportSpec "," } ")" ) .
+ImportSpec       = [ PackageName ] ImportPath .
+ImportLocation   = { unicode_value } .
+ImportPath       = `"` ImportLocation [ ":" identifier ] `"` .
+
+

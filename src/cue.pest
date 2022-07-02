@@ -1,0 +1,131 @@
+newline        = _{ "\u{000A}" }
+unicode_char   = _{ !newline ~ ANY }
+unicode_letter = _{ LETTER }
+unicode_digit  = _{ DECIMAL_NUMBER }
+
+letter        = _{ unicode_letter | "_" | "$" }
+decimal_digit = _{ '0'..'9' }
+binary_digit  = _{ '0'..'1' }
+octal_digit   = _{ '0'..'7' }
+hex_digit     = _{ '0'..'9' | 'A'..'F' | 'a'..'f' }
+
+identifier = _{ ("#" | "_#")? ~ letter ~ (letter | unicode_digit)* }
+
+int_lit     = _{ decimals | si_lit | octal_lit | binary_lit | hex_lit }
+decimals    = _{ decimal_digit ~ ( "_"? ~ decimal_digit )* }
+si_it       = _{ (decimals ~ ("." ~  decimals)? ~ multiplier)
+               | ("." ~ decimals ~  multiplier)
+               }
+binary_lit  = _{ "0b" ~ binary_digit ~ binary_digit* }
+hex_lit     = _{ "0" ~ ( "x" | "X" ) ~ hex_digit ~ ("_"? ~ hex_digit )* }
+octal_lit   = _{ "0o" ~ octal_digit  ~ ("_"? ~ octal_digit )* }
+multiplier  = _{ ("K" | "M" | "G" | "T" | "P" ) ~ "i"? }
+
+float_lit = _{ (decimals ~ "." ~ decimals? ~ exponent?)
+             | (decimals ~ exponent)
+             | ("." ~ decimals ~ exponent? )
+             }
+exponent = _{ ("e" | "E") ~ ("+" | "-")? ~ decimals}
+
+escaped_char     = _{ "\\" ~ PEEK ~ ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | "\\" | "'" | '"' ) }
+octal_byte_value = _{ "\\" ~ PEEK ~ octal_digit{3} }
+hex_byte_value   = _{ "\\" ~ PEEK ~ "x" ~ hex_digit{2} }
+little_u_value   = _{ "\\" ~ PEEK ~ "u" ~ hex_digit{4} }
+big_u_value      = _{ "\\" ~ PEEK ~ "U" ~ hex_digit{8} }
+interpolation    = !{ "\\" ~ PEEK ~ "(" ~ Expression ~ ")" }
+unicode_value    = _{ unicode_char | little_u_value | big_u_value | escaped_char }
+byte_value       = _{ octal_byte_value | hex_byte_value }
+
+string_lit       = @{ PUSH("#"*) ~ ( simple_string_lit
+                                   | multiline_string_lit
+                                   | simple_bytes_lit
+                                   | multiline_bytes_lit
+                                   ) ~ POP }
+
+simple_string_lit    = _{ '"' ~ ( unicode_value | interpolation )* ~ '"' }
+simple_bytes_lit     = _{ "'" ~ ( unicode_value | interpolation | byte_value )* ~ "'" }
+multiline_string_lit = _{ '"'{3} ~ newline ~
+                             ( unicode_value | interpolation | newline )* ~
+                             newline ~ '"'{3} }
+multiline_bytes_lit  = _{ "'''" ~ newline ~
+                             ( unicode_value | interpolation | byte_value | newline )* ~
+                             ~ newline ~ "'''" }
+
+
+Structlit       = { "{" ~ ( Declaration ~ "," )* ~ "}" }
+Declaration     = { Field | Ellipsis | Embedding | LetClause | attribute }
+Ellipsis        = { "..." ~ Expression? }
+Embedding       = { Comprehension | AliasExpr }
+Field           = { Label ~ ":" ~ ( Label ~ ":" )* ~ AliasExpr ~ attribute* }
+Label           = { ( identifier ~ "=" ) ~ LabelExpr }
+LabelExpr       = { ( LabelName ~ "?"? ) | ( "[" ~ AliasExpr ~ "]" ) }
+LabelName       = { identifier | simple_string_lit  }
+
+attribute       = _{ "@" ~ identifier ~ "(" ~ attr_tokens ~ ")" }
+attr_tokens     = _{ (        attr_token 
+                     | ( "(" ~ attr_tokens ~ ")" )
+                     | ( "[" ~ attr_tokens ~ "]" )
+                     | ( "{" ~ attr_tokens ~ "}" )
+                     )* }
+attr_token      = _{ !( '(' | ')' | '[' | ']' | '{' | '}' ) ~ ANY }
+
+
+AliasExpr  = { ( identifier ~ "=" )? ~ Expression }
+
+ListLit       = { "[" ~ ( ElementList ~ ","? )? ~ "]" }
+ElementList   = { Ellipsis | ( Embedding ~ ( "," Embedding )* ~ ( "," ~ Ellipsis )? }
+
+Operand     = { Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
+Literal     = { BasicLit | ListLit | StructLit }
+BasicLit    = { int_lit | float_lit | string_lit | null_lit | bool_lit | bottom_lit }
+OperandName = { identifier | QualifiedIdent }
+
+QualifiedIdent = { PackageName ~ "." ~ identifier }
+
+PrimaryExpr = {	Operand
+              | ( PrimaryExpr ~  Selector )
+              | ( PrimaryExpr ~  Index )
+              | ( PrimaryExpr ~  Slice )
+              | ( PrimaryExpr ~  Arguments )
+              }
+
+Selector       = { "." ~ (identifier | simple_string_lit) }
+Index          = { "[" ~ Expression ~ "]" }
+Argument       = { Expression }
+Arguments      = { "(" ~ ( ( Argument ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
+
+Expression = { UnaryExpr | ( Expression ~ binary_op ~ Expression ) }
+UnaryExpr  = { PrimaryExpr | ( unary_op ~ UnaryExpr ) }
+
+binary_op  = { "|" | "&" | "||" | "&&" | "==" | rel_op | add_op | mul_op  }
+rel_op     = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
+add_op     = { "+" | "-" }
+mul_op     = { "*" | "/" }
+unary_op   = { "+" | "-" | "!" | "*" | rel_op }
+
+Comprehension = { Clauses ~ StructLit }
+
+Clauses       = { StartClause ~ ( ","? ~ Clause )* }
+StartClause   = { ForClause | GuardClause }
+Clause        = { StartClause | LetClause }
+ForClause     = { "for" ~ identifier ~ ( "," ~ identifier )? ~ "in" ~ Expression }
+GuardClause   = { "if" ~ Expression }
+LetClause     = { "let" ~ identifier ~ "=" ~ Expression }
+
+
+package_clause = { "package" ~ package_name }
+package_name = { identifier }
+
+import_decl = { "import" ~ ( import_spec | {"(" ~ (import_spec)* ~ ")"} ) }
+import_spec = { package_name? ~ import_path }
+import_location = { unicode_value }
+import_path = {"\"" ~ import_location ~ (":" ~ identifier)? ~ "\"" }
+
+source_file = { SOI 
+    ~ (attribute ~ ",")*
+    ~ (package_clause)?
+    ~ (import_decl)
+    ~ (declaration)*
+    ~ EOI}
+
+COMMENT = _{ "//" ~ (!newline ~ ANY)* ~ newline }
