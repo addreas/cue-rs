@@ -23,11 +23,11 @@ hex_lit     = _{ "0" ~ ( "x" | "X" ) ~ hex_digit ~ ("_"? ~ hex_digit )* }
 multiplier  = _{ ("K" | "M" | "G" | "T" | "P" ) ~ "i"? }
 exponent    = _{ ("e" | "E") ~ ("+" | "-")? ~ decimals}
 
-int_lit     = _{ decimals | si_lit | octal_lit | binary_lit | hex_lit }
-float_lit = _{ (decimals ~ "." ~ decimals? ~ exponent?)
-             | (decimals ~ exponent)
-             | ("." ~ decimals ~ exponent? )
-             }
+int_lit     = { decimals | si_lit | octal_lit | binary_lit | hex_lit }
+float_lit   = { (decimals ~ "." ~ decimals? ~ exponent?)
+              | (decimals ~ exponent)
+              | ("." ~ decimals ~ exponent? )
+              }
 
 escaped_char     = _{ "\\" ~ PEEK ~ ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | "\\" | sq | dq ) }
 octal_byte_value = _{ "\\" ~ PEEK ~ octal_digit{3} }
@@ -57,9 +57,9 @@ multiline_bytes_lit  = _{ sq{3}
                         ~ newline
                         ~ sq{3} }
 
-bottom_lit = _{ "_|_" }
-null_lit   = _{ "null" }
-bool_lit   = _{ "true" | "false" }
+bottom_lit = { "_|_" }
+null_lit   = { "null" }
+bool_lit   = { "true" | "false" }
 
 StructLit       = { "{" ~ ( Declaration ~ "," )* ~ "}" }
 Declaration     = { Field | Ellipsis | Embedding | LetClause | attribute }
@@ -70,8 +70,8 @@ Label           = { ( identifier ~ "=" ) ~ LabelExpr }
 LabelExpr       = { ( LabelName ~ "?"? ) | ( "[" ~ AliasExpr ~ "]" ) }
 LabelName       = { identifier | simple_string_lit  }
 
-attribute       = _{ "@" ~ identifier ~ "(" ~ attr_tokens ~ ")" }
-attr_tokens     = _{ (        attr_token 
+attribute       = { "@" ~ identifier ~ "(" ~ attr_tokens ~ ")" }
+attr_tokens     = { (        attr_token 
                      | ( "(" ~ attr_tokens ~ ")" )
                      | ( "[" ~ attr_tokens ~ "]" )
                      | ( "{" ~ attr_tokens ~ "}" )
@@ -85,7 +85,7 @@ ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellips
 
 Literal     = { BasicLit | ListLit | StructLit }
 Operand     = { Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
-BasicLit    = { int_lit | float_lit | string_lit | null_lit | bool_lit | bottom_lit }
+BasicLit    = { float_lit | int_lit | string_lit | null_lit | bool_lit | bottom_lit }
 OperandName = { identifier | QualifiedIdent }
 
 QualifiedIdent = { PackageName ~ "." ~ identifier }
@@ -96,15 +96,19 @@ Slice          = { "[" ~ Expression? ~ ":" ~ Expression? ~ "]" }
 Argument       = { Expression }
 Arguments      = { "(" ~ ( ( Argument ~ ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
 
-PrimaryExpr = {	Operand
-              | ( PrimaryExpr ~ Selector )
-              | ( PrimaryExpr ~ Index )
-              | ( PrimaryExpr ~ Slice )
-              | ( PrimaryExpr ~ Arguments )
-              }
+// PrimaryExpr = {	Operand
+//               | ( PrimaryExpr ~ Selector )
+//               | ( PrimaryExpr ~ Index )
+//               | ( PrimaryExpr ~ Slice )
+//               | ( PrimaryExpr ~ Arguments )
+//               }
+
+PrimaryExpr = { Operand ~ (Selector | Index | Slice | Argument)* }
 
 UnaryExpr  = { PrimaryExpr | ( unary_op ~ UnaryExpr ) }
-Expression = { UnaryExpr | ( Expression ~ binary_op ~ Expression ) }
+// Expression = { UnaryExpr | ( Expression ~ binary_op ~ Expression ) }
+Expression = { UnaryExpr ~ (binary_op ~ Expression)? }
+
 
 binary_op  = { "|" | "&" | "||" | "&&" | "==" | rel_op | add_op | mul_op  }
 rel_op     = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
@@ -130,10 +134,11 @@ ImportLocation = { unicode_value }
 ImportPath     = { "\"" ~ ImportLocation ~ (":" ~ identifier)? ~ "\"" }
 
 SourceFile = { SOI 
-    ~ (attribute ~ ",")*
-    ~ (PackageClause)?
-    ~ (ImportDecl)
-    ~ (Declaration)*
-    ~ EOI}
+             ~ (attribute ~ ",")*
+             ~ (PackageClause)?
+             ~ (ImportDecl)
+             ~ (Declaration)*
+             ~ EOI
+             }
 
 COMMENT = _{ "//" ~ (!newline ~ ANY)* ~ newline }
