@@ -1,3 +1,8 @@
+// https://cuelang.org/docs/references/spec/
+// https://review.gerrithub.io/c/cue-lang/cue/+/540569/3/doc/ref/spec.md#458
+// "Production names starting with an uppercase Unicode letter denote non-terminal productions (i.e., productions which allow white-space and comments between tokens); all other production names denote lexical productions."
+// https://pest.rs/book/grammars/syntax.html#atomic
+
 newline        = _{ "\u{000A}" }
 dq             = _{ "\"" }
 sq             = _{ "'" }
@@ -11,72 +16,75 @@ binary_digit  = _{ '0'..'1' }
 octal_digit   = _{ '0'..'7' }
 hex_digit     = _{ '0'..'9' | 'A'..'F' | 'a'..'f' }
 
-identifier = _{ ("#" | "_#")? ~ letter ~ (letter | unicode_digit)* }
+identifier = @{ ("#" | "_#")? ~ letter ~ (letter | unicode_digit)* }
 
-decimals    = _{ decimal_digit ~ ( "_"? ~ decimal_digit )* }
-si_lit      = _{ (decimals ~ ("." ~  decimals)? ~ multiplier)
-               | ("." ~ decimals ~  multiplier)
+decimal_lit = @{ "0" | ('1'..'9' ~ ( "_"? ~ decimal_digit )*) }
+fraction    = @{ decimal_digit ~ ( "_"? ~ decimal_digit )* }
+si_lit      = @{ (decimal_lit ~ ("." ~  fraction)? ~ multiplier)
+               | ("." ~ fraction ~  multiplier)
                }
-binary_lit  = _{ "0b" ~ binary_digit ~ ( "_"? ~ binary_digit )* }
-octal_lit   = _{ "0o" ~ octal_digit ~ ( "_"? ~ octal_digit )* }
-hex_lit     = _{ "0" ~ ( "x" | "X" ) ~ hex_digit ~ ("_"? ~ hex_digit )* }
-multiplier  = _{ ("K" | "M" | "G" | "T" | "P" ) ~ "i"? }
-exponent    = _{ ("e" | "E") ~ ("+" | "-")? ~ decimals}
+binary_lit  = @{ "0b" ~ binary_digit ~ ( "_"? ~ binary_digit )* }
+octal_lit   = @{ "0o" ~ octal_digit ~ ( "_"? ~ octal_digit )* }
+hex_lit     = @{ "0" ~ ( "x" | "X" ) ~ hex_digit ~ ("_"? ~ hex_digit )* }
+multiplier  = @{ ("K" | "M" | "G" | "T" | "P" ) ~ "i"? }
+exponent    = @{ ("e" | "E") ~ ("+" | "-")? ~ decimal_lit}
 
-int_lit     = { decimals | si_lit | octal_lit | binary_lit | hex_lit }
-float_lit   = { (decimals ~ "." ~ decimals? ~ exponent?)
-              | (decimals ~ exponent)
-              | ("." ~ decimals ~ exponent? )
-              }
+int_lit     = { si_lit | decimal_lit  | octal_lit | binary_lit | hex_lit }
+float_lit   = ${ (decimal_lit ~ ("." ~ fraction)? ~ exponent?)
+               | ("." ~ fraction ~ exponent? )
+               }
 
-escaped_char     = _{ "\\" ~ PEEK ~ ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | "\\" | sq | dq ) }
-octal_byte_value = _{ "\\" ~ PEEK ~ octal_digit{3} }
-hex_byte_value   = _{ "\\" ~ PEEK ~ "x" ~ hex_digit{2} }
-little_u_value   = _{ "\\" ~ PEEK ~ "u" ~ hex_digit{4} }
-big_u_value      = _{ "\\" ~ PEEK ~ "U" ~ hex_digit{8} }
-interpolation    = !{ "\\" ~ PEEK ~ "(" ~ Expression ~ ")" }
-unicode_value    = _{ unicode_char | little_u_value | big_u_value | escaped_char }
-byte_value       = _{ octal_byte_value | hex_byte_value }
+escaped_char     = @{ "\\" ~ PEEK ~ ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | "\\" | sq | dq ) }
+octal_byte_value = @{ "\\" ~ PEEK ~ octal_digit{3} }
+hex_byte_value   = @{ "\\" ~ PEEK ~ "x" ~ hex_digit{2} }
+little_u_value   = @{ "\\" ~ PEEK ~ "u" ~ hex_digit{4} }
+big_u_value      = @{ "\\" ~ PEEK ~ "U" ~ hex_digit{8} }
+Interpolation    = !{ "\\" ~ PEEK ~ "(" ~ Expression ~ ")" }
+unicode_value    = @{ unicode_char | little_u_value | big_u_value | escaped_char }
+byte_value       = @{ octal_byte_value | hex_byte_value }
 
-string_lit       = @{ PUSH("#"*) ~ ( simple_string_lit
-                                   | multiline_string_lit
-                                   | simple_bytes_lit
-                                   | multiline_bytes_lit
-                                   ) ~ POP }
+String       = { PUSH("#"*) ~ ( SimpleString
+                               | MultilineString
+                               | SimpleBytes
+                               | MultilineBytes
+                               ) ~ POP }
 
-simple_string_lit    = _{ dq ~ ( unicode_value | interpolation )* ~ dq }
-simple_bytes_lit     = _{ sq ~ ( unicode_value | interpolation | byte_value )* ~ sq }
-multiline_string_lit = _{ dq{3}
-                        ~ newline
-                        ~ ( unicode_value | interpolation | newline )*
-                        ~ newline
-                        ~ dq{3} }
-multiline_bytes_lit  = _{ sq{3}
-                        ~ newline
-                        ~ ( unicode_value | interpolation | byte_value | newline )*
-                        ~ newline
-                        ~ sq{3} }
+SimpleString    = { dq ~ ( unicode_value | Interpolation )* ~ dq }
+SimpleBytes     = { sq ~ ( unicode_value | Interpolation | byte_value )* ~ sq }
+MultilineString = { dq{3}
+                  ~ newline
+                  ~ ( unicode_value | Interpolation | newline )*
+                  ~ newline
+                  ~ dq{3} }
+MultilineBytes  = { sq{3}
+                  ~ newline
+                  ~ ( unicode_value | Interpolation | byte_value | newline )*
+                  ~ newline
+                  ~ sq{3} }
 
 bottom_lit = { "_|_" }
 null_lit   = { "null" }
 bool_lit   = { "true" | "false" }
 
 StructLit       = { "{" ~ ( Declaration ~ "," )* ~ "}" }
-Declaration     = { Field | Ellipsis | Embedding | LetClause | attribute }
+Declaration     = { Field | Ellipsis | Embedding | attribute }
 Ellipsis        = { "..." ~ Expression? }
 Embedding       = { Comprehension | AliasExpr }
 Field           = { Label ~ ":" ~ ( Label ~ ":" )* ~ AliasExpr ~ attribute* }
 Label           = { ( identifier ~ "=" ) ~ LabelExpr }
-LabelExpr       = { ( LabelName ~ "?"? ) | ( "[" ~ AliasExpr ~ "]" ) }
-LabelName       = { identifier | simple_string_lit  }
+LabelExpr       = { ( LabelName ~ "?"? )
+                  | ( "[" ~ AliasExpr ~ "]" )
+                  | ( "(" ~ AliasExpr ~ ")" )
+                  }
+LabelName       = { identifier | SimpleString  }
 
-attribute       = { "@" ~ identifier ~ "(" ~ attr_tokens ~ ")" }
-attr_tokens     = { (        attr_token 
+attribute       = @{ "@" ~ identifier ~ "(" ~ attr_tokens ~ ")" }
+attr_tokens     = @{ ( attr_token
                      | ( "(" ~ attr_tokens ~ ")" )
                      | ( "[" ~ attr_tokens ~ "]" )
                      | ( "{" ~ attr_tokens ~ "}" )
                      )* }
-attr_token      = _{ !( "(" | ")" | "[" | "]" | "{" | "}" ) ~ ANY }
+attr_token      = @{ !( "(" | ")" | "[" | "]" | "{" | "}" ) ~ ANY }
 
 AliasExpr  = { ( identifier ~ "=" )? ~ Expression }
 
@@ -85,12 +93,12 @@ ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellips
 
 Literal     = { BasicLit | ListLit | StructLit }
 Operand     = { Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
-BasicLit    = { float_lit | int_lit | string_lit | null_lit | bool_lit | bottom_lit }
+BasicLit    = { float_lit | int_lit | String | null_lit | bool_lit | bottom_lit }
 OperandName = { identifier | QualifiedIdent }
 
 QualifiedIdent = { PackageName ~ "." ~ identifier }
 
-Selector       = { "." ~ (identifier | simple_string_lit) }
+Selector       = { "." ~ ( identifier | SimpleString ) }
 Index          = { "[" ~ Expression ~ "]" }
 Slice          = { "[" ~ Expression? ~ ":" ~ Expression? ~ "]" }
 Argument       = { Expression }
@@ -103,7 +111,7 @@ Arguments      = { "(" ~ ( ( Argument ~ ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
 //               | ( PrimaryExpr ~ Arguments )
 //               }
 
-PrimaryExpr = { Operand ~ (Selector | Index | Slice | Argument)* }
+PrimaryExpr = { Operand ~ (Selector | Index | Slice | Arguments )* }
 
 UnaryExpr  = { PrimaryExpr | ( unary_op ~ UnaryExpr ) }
 // Expression = { UnaryExpr | ( Expression ~ binary_op ~ Expression ) }
@@ -136,9 +144,10 @@ ImportPath     = { "\"" ~ ImportLocation ~ (":" ~ identifier)? ~ "\"" }
 SourceFile = { SOI 
              ~ (attribute ~ ",")*
              ~ (PackageClause)?
-             ~ (ImportDecl)
+             ~ (ImportDecl)*
              ~ (Declaration)*
              ~ EOI
              }
 
-COMMENT = _{ "//" ~ (!newline ~ ANY)* ~ newline }
+WHITESPACE = _{ " " | "\t" | "\n" }
+COMMENT = _{ "//" ~ (!newline ~ ANY)* ~ (newline | EOI) }
