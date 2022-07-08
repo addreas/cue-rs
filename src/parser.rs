@@ -10,6 +10,7 @@ type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
 // This is the other half of the parser, using pest_consume.
 #[pest_consume::parser]
+#[allow(dead_code)]
 impl CUEParser {
     fn identifier(input: Node) -> Result<ast::Ident> {
         Ok(ast::Ident {
@@ -31,9 +32,9 @@ impl CUEParser {
     }
     fn si_lit(input: Node) -> Result<i64> {
         Ok(match_nodes!(input.into_children();
-            [decimal_lit(a), fraction(b), multiplier(m)] => ((a as f64 + b) * m as f64) as i64,
-            [decimal_lit(a), multiplier(m)] => ((a * m) as f64) as i64,
-            [fraction(b), multiplier(m)] => (b * m as f64) as i64))
+            [decimal_lit(a), fraction(b), multiplier(m)] => ((a as f64 + b) * m  as f64) as i64,
+            [decimal_lit(a),              multiplier(m)] => ((a             * m) as f64) as i64,
+            [                fraction(b), multiplier(m)] => (            b  * m  as f64) as i64))
     }
     fn binary_lit(input: Node) -> Result<i64> {
         i64::from_str_radix(input.as_str(), 2)
@@ -64,17 +65,8 @@ impl CUEParser {
         }
     }
     fn exponent(input: Node) -> Result<i32> {
-        input
-            .as_str()
-            .trim_start_matches(['E', 'e'])
-            .parse()
-            .map_err(|e| {
-                input.error(format!(
-                    "exponent parsing failed for {}: {}",
-                    input.as_str(),
-                    e
-                ))
-            })
+        Ok(match_nodes!(input.into_children();
+            [decimal_lit(n)] => n as i32))
     }
     fn int_lit(input: Node) -> Result<i64> {
         Ok(match_nodes!(input.into_children();
@@ -87,12 +79,11 @@ impl CUEParser {
     }
     fn float_lit(input: Node) -> Result<f64> {
         Ok(match_nodes!(input.into_children();
-            [decimal_lit(a), fraction(b), exponent(e)] => (a as f64 + b)  * f64::powi(10.0, e),
-            [decimal_lit(a), exponent(e)] => a as f64 * f64::powi(10.0 , e),
-            [_, fraction(b), exponent(e)] => b * f64::powi(10.0, e),
-            [fraction(b), exponent(e)] => b * f64::powi(10.0, e),
-            [decimal_lit(a), fraction(b)] => a as f64 + b,
-            [fraction(b)] => b,
+            [decimal_lit(a), fraction(b), exponent(e)] => (a as f64 + b) * f64::powi(10.0, e),
+            [decimal_lit(a), fraction(b)             ] =>  a as f64 + b,
+            [decimal_lit(a),              exponent(e)] =>  a as f64      * f64::powi(10.0, e),
+            [                fraction(b), exponent(e)] =>             b  * f64::powi(10.0, e),
+            [                fraction(b)             ] =>             b,
         ))
     }
     fn escaped_char(input: Node) -> Result<char> {
@@ -298,7 +289,9 @@ impl CUEParser {
 #[test]
 fn test_float() {
     let parse_float = |str| CUEParser::float_lit(CUEParser::parse(Rule::float_lit, str)?.single()?);
+    assert_eq!(parse_float("0.0"), Ok(0.0));
     assert_eq!(parse_float("1.0"), Ok(1.0));
+    assert_eq!(parse_float("-1.0"), Ok(-1.0));
     assert_eq!(parse_float("0.1"), Ok(0.1));
     assert_eq!(parse_float(".1"), Ok(0.1));
     assert_eq!(parse_float(".1e1"), Ok(0.1e1));
