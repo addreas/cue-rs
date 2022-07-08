@@ -4,8 +4,6 @@
 // https://pest.rs/book/grammars/syntax.html#atomic
 
 newline        = _{ "\u{000A}" }
-dq             = _{ "\"" }
-sq             = _{ "'" }
 unicode_char   = _{ !newline ~ ANY }
 unicode_letter = _{ LETTER }
 unicode_digit  = _{ DECIMAL_NUMBER }
@@ -34,13 +32,14 @@ float_lit   = ${ (decimal_lit ~ ("." ~ fraction)? ~ exponent?)
                | ("." ~ fraction ~ exponent? )
                }
 
-escaped_char     = @{ "\\" ~ PEEK ~ ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | "\\" | sq | dq ) }
-octal_byte_value = @{ "\\" ~ PEEK ~ octal_digit{3} }
-hex_byte_value   = @{ "\\" ~ PEEK ~ "x" ~ hex_digit{2} }
-little_u_value   = @{ "\\" ~ PEEK ~ "u" ~ hex_digit{4} }
-big_u_value      = @{ "\\" ~ PEEK ~ "U" ~ hex_digit{8} }
-Interpolation    = !{ "\\" ~ PEEK ~ "(" ~ Expression ~ ")" }
-unicode_value    = @{ unicode_char | little_u_value | big_u_value | escaped_char }
+escape_sequence  = @{ "\\" ~ PEEK[0..1] }
+escaped_char     = @{ escape_sequence ~ ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | "\\" | "'" | "\"" ) }
+octal_byte_value = @{ escape_sequence ~ octal_digit{3} }
+hex_byte_value   = @{ escape_sequence ~ "x" ~ hex_digit{2} }
+little_u_value   = @{ escape_sequence ~ "u" ~ hex_digit{4} }
+big_u_value      = @{ escape_sequence ~ "U" ~ hex_digit{8} }
+Interpolation    = !{ escape_sequence ~ "(" ~ Expression ~ ")" }
+unicode_value    = @{ !(PEEK_ALL | escape_sequence) ~ unicode_char | little_u_value | big_u_value | escaped_char }
 byte_value       = @{ octal_byte_value | hex_byte_value }
 
 String       = { PUSH("#"*) ~ ( SimpleString
@@ -49,18 +48,18 @@ String       = { PUSH("#"*) ~ ( SimpleString
                                | MultilineBytes
                                ) ~ POP }
 
-SimpleString    = { dq ~ ( unicode_value | Interpolation )* ~ dq }
-SimpleBytes     = { sq ~ ( unicode_value | Interpolation | byte_value )* ~ sq }
-MultilineString = { dq{3}
+SimpleString    = { PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP }
+SimpleBytes     = { PUSH("'") ~ ( unicode_value | Interpolation | byte_value )* ~ POP }
+MultilineString = { PUSH("\"\"\"")
                   ~ newline
                   ~ ( unicode_value | Interpolation | newline )*
                   ~ newline
-                  ~ dq{3} }
-MultilineBytes  = { sq{3}
+                  ~ POP }
+MultilineBytes  = { PUSH("'''")
                   ~ newline
                   ~ ( unicode_value | Interpolation | byte_value | newline )*
                   ~ newline
-                  ~ sq{3} }
+                  ~ POP }
 
 bottom_lit = { "_|_" }
 null_lit   = { "null" }
@@ -93,7 +92,7 @@ ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellips
 
 Literal     = { BasicLit | ListLit | StructLit }
 Operand     = { Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
-BasicLit    = { float_lit | int_lit | String | null_lit | bool_lit | bottom_lit }
+BasicLit    = { int_lit | float_lit | String | null_lit | bool_lit | bottom_lit }
 OperandName = { identifier | QualifiedIdent }
 
 QualifiedIdent = { PackageName ~ "." ~ identifier }
@@ -138,8 +137,8 @@ PackageName   = { identifier }
 
 ImportDecl     = { "import" ~ ( ImportSpec | ("(" ~ ImportSpec* ~ ")") ) }
 ImportSpec     = { PackageName? ~ ImportPath }
-ImportLocation = { unicode_value }
-ImportPath     = { "\"" ~ ImportLocation ~ (":" ~ identifier)? ~ "\"" }
+ImportLocation = { unicode_value* }
+ImportPath     = { PUSH("\"") ~ ImportLocation ~ (":" ~ identifier)? ~ POP }
 
 SourceFile = { SOI 
              ~ (attribute ~ ",")*

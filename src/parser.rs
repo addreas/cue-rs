@@ -320,3 +320,10 @@ fn test_int() {
     assert_eq!(parse_int("1.2K"), Ok(1200));
     assert_eq!(parse_int("3Ki"), Ok(3 * 1024));
 }
+
+#[test]
+fn strings() {
+    println!("{:#?}", CUEParser::parse(Rule::String, "\"he\\(1 + 1)lo\""));
+    println!("{:#?}", CUEParser::parse(Rule::SimpleString, "\"test\""));
+    println!("{:#?}", CUEParser::parse(Rule::String, r###"#'test'#"###));
+}
