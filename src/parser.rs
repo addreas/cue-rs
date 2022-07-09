@@ -1,4 +1,6 @@
-use crate::ast;
+use std::vec;
+
+use crate::ast::{self, new_str};
 use pest_consume::{match_nodes, Error, Parser};
 
 #[derive(Parser)]
@@ -8,6 +10,56 @@ pub struct CUEParser;
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
+fn interpolation_elements(input: Node) -> Result<Vec<ast::Expr>> {
+    let mut current_str = String::new();
+    let mut iter = input.clone().into_children().peekable();
+    let mut res = vec![];
+    loop {
+        // println!(
+        //     "interpolation_elements: {:?}",
+        //     input
+        //         .clone()
+        //         .into_children()
+        //         .peekable()
+        //         .next_if(|n| n.as_rule() != Rule::Interpolation)
+        // );
+        if let Some(n) = iter.next_if(|n| n.as_rule() != Rule::Interpolation) {
+            let ch = match n.as_rule() {
+                Rule::escaped_char => CUEParser::escaped_char(n),
+                Rule::octal_byte_value => CUEParser::octal_byte_value(n),
+                Rule::hex_byte_value => CUEParser::hex_byte_value(n),
+                Rule::little_u_value => CUEParser::little_u_value(n),
+                Rule::big_u_value => CUEParser::big_u_value(n),
+                Rule::unicode_value => CUEParser::unicode_value(n),
+                Rule::byte_value => CUEParser::byte_value(n),
+                x => Err(n.error(format!("interpolation_elements: unknown node type {:?}", x))),
+            };
+            // println!("im here with {:?}!", ch);
+
+            current_str.push(ch?)
+        } else if let Some(n) = iter.next() {
+            res.push(ast::new_str(current_str.clone()));
+            res.push(CUEParser::Interpolation(n)?);
+            current_str.clear();
+        } else {
+            res.push(ast::new_str(current_str));
+            break;
+        }
+    }
+    return Ok(res);
+}
+
+fn parse_digits_radix(input: Node, radix: u32) -> Result<char> {
+    let escape = input.clone().into_pair().into_inner().as_str();
+    let digits = input.as_str().trim_start_matches(escape);
+    match u32::from_str_radix(digits, radix) {
+        Ok(char_value) => match char::from_u32(char_value) {
+            Some(c) => Ok(c),
+            None => Err(input.error("parse_digits_radix: invalid char")),
+        },
+        _ => Err(input.error("parse_digits_radix: invalid digits")),
+    }
+}
 // This is the other half of the parser, using pest_consume.
 #[pest_consume::parser]
 #[allow(dead_code)]
@@ -16,6 +68,13 @@ impl CUEParser {
         Ok(ast::Ident {
             name: input.as_str(),
         })
+    }
+    fn unicode_char(input: Node) -> Result<char> {
+        input
+            .as_str()
+            .chars()
+            .next()
+            .map_or(Err(input.error("no first char in str")), |c| Ok(c))
     }
     fn decimal_lit(input: Node) -> Result<i64> {
         input
@@ -65,8 +124,7 @@ impl CUEParser {
         }
     }
     fn exponent(input: Node) -> Result<i32> {
-        Ok(match_nodes!(input.into_children();
-            [decimal_lit(n)] => n as i32))
+        Ok(match_nodes!(input.into_children(); [decimal_lit(n)] => n as i32))
     }
     fn int_lit(input: Node) -> Result<i64> {
         Ok(match_nodes!(input.into_children();
@@ -87,49 +145,87 @@ impl CUEParser {
         ))
     }
     fn escaped_char(input: Node) -> Result<char> {
-        input
-            .as_str()
-            .chars()
-            .last()
-            .map_or(Err(input.error("no last char in escape sequence")), |c| {
-                Ok(c)
-            })
+        println!("escaped_char: {:?}", input.as_str());
+        match input.as_str().chars().last() {
+            Some('a') => Ok('\u{0007}'),
+            Some('b') => Ok('\u{0008}'),
+            Some('f') => Ok('\u{000C}'),
+            Some('n') => Ok('\n'),
+            Some('r') => Ok('\r'),
+            Some('t') => Ok('\t'),
+            Some('v') => Ok('\u{000b}'),
+            Some(x) => Ok(x),
+            x => Err(input.error(format!("escaped_char: unknown escape char {:?}", x))),
+        }
     }
-    fn octal_byte_value(input: Node) -> Result<()> {
-        Ok(())
+    fn octal_byte_value(input: Node) -> Result<char> {
+        println!("octal_byte_value: {:?}", input.as_str());
+        parse_digits_radix(input, 8)
     }
-    fn hex_byte_value(input: Node) -> Result<()> {
-        Ok(())
+    fn hex_byte_value(input: Node) -> Result<char> {
+        println!("hex_byte_value: {:?}", input.as_str());
+        parse_digits_radix(input, 16)
     }
-    fn little_u_value(input: Node) -> Result<()> {
-        Ok(())
+    fn little_u_value(input: Node) -> Result<char> {
+        println!("littel_u_value: {:?}", input.as_str());
+        parse_digits_radix(input, 16)
     }
-    fn big_u_value(input: Node) -> Result<()> {
-        Ok(())
+    fn big_u_value(input: Node) -> Result<char> {
+        println!("big_u_value: {:?}", input.as_str());
+        parse_digits_radix(input, 16)
     }
-    fn Interpolation(input: Node) -> Result<()> {
-        Ok(())
+    fn unicode_value(input: Node) -> Result<char> {
+        println!("unicode_value: {:?}", input.as_str());
+        Ok(match_nodes!(input.clone().into_children();
+            [little_u_value(c)] => c,
+            [big_u_value(c)] => c,
+            [escaped_char(c)] => c,
+            [unicode_char(c)] => c,
+        ))
     }
-    fn unicode_value(input: Node) -> Result<()> {
-        Ok(())
+    fn byte_value(input: Node) -> Result<char> {
+        println!("byte_value: {:?}", input.as_str());
+        Ok(match_nodes!(input.into_children();
+            [octal_byte_value(c)] => c,
+            [hex_byte_value(c)] => c,
+        ))
     }
-    fn byte_value(input: Node) -> Result<()> {
-        Ok(())
+    fn Interpolation(input: Node) -> Result<ast::Expr> {
+        println!("Iterpolation: {:?}", input.as_str());
+        CUEParser::Expression(input.into_children().single()?)
     }
-    fn String(input: Node) -> Result<()> {
-        Ok(())
+    fn String(input: Node) -> Result<ast::Interpolation> {
+        println!("String: {:?}", input.as_str());
+        Ok(match_nodes!(input.into_children();
+            [SimpleString(s)] => s,
+            [MultilineString(s)] => s,
+            [SimpleBytes(s)] => s,
+            [MultilineBytes(s)] => s))
     }
-    fn SimpleString(input: Node) -> Result<()> {
-        Ok(())
+    fn SimpleString(input: Node) -> Result<ast::Interpolation> {
+        Ok(ast::Interpolation {
+            is_bytes: false,
+            elements: interpolation_elements(input)?,
+        })
     }
-    fn SimpleBytes(input: Node) -> Result<()> {
-        Ok(())
+    fn SimpleBytes(input: Node) -> Result<ast::Interpolation> {
+        println!("{}", input);
+        Ok(ast::Interpolation {
+            is_bytes: true,
+            elements: interpolation_elements(input)?,
+        })
     }
-    fn MultilineString(input: Node) -> Result<()> {
-        Ok(())
+    fn MultilineString(input: Node) -> Result<ast::Interpolation> {
+        Ok(ast::Interpolation {
+            is_bytes: false,
+            elements: interpolation_elements(input)?,
+        })
     }
-    fn MultilineBytes(input: Node) -> Result<()> {
-        Ok(())
+    fn MultilineBytes(input: Node) -> Result<ast::Interpolation> {
+        Ok(ast::Interpolation {
+            is_bytes: true,
+            elements: interpolation_elements(input)?,
+        })
     }
     fn bottom_lit(input: Node) -> Result<()> {
         Ok(())
@@ -218,8 +314,8 @@ impl CUEParser {
     fn UnaryExpr(input: Node) -> Result<()> {
         Ok(())
     }
-    fn Expression(input: Node) -> Result<()> {
-        Ok(())
+    fn Expression(input: Node) -> Result<ast::Expr> {
+        Ok(ast::Expr::Bad)
     }
     fn binary_op(input: Node) -> Result<()> {
         Ok(())
@@ -323,7 +419,29 @@ fn test_int() {
 
 #[test]
 fn strings() {
-    println!("{:#?}", CUEParser::parse(Rule::String, "\"he\\(1 + 1)lo\""));
-    println!("{:#?}", CUEParser::parse(Rule::SimpleString, "\"test\""));
-    println!("{:#?}", CUEParser::parse(Rule::String, r###"#'test'#"###));
+    // println!(
+    //     "{:#?}",
+    //     CUEParser::String(
+    //         CUEParser::parse(Rule::String, "\'\\100\'")
+    //             .unwrap()
+    //             .single()
+    //             .unwrap()
+    //     )
+    // );
+    // println!(
+    //     "{:#?}",
+    //     CUEParser::parse(Rule::String, "\"hello \\(1+1) world\"")
+    // );
+    let parse_str = |str| {
+        let parsed = CUEParser::parse(Rule::String, str)?.single()?;
+        println!("{:#?}", parsed);
+        CUEParser::String(parsed)
+    };
+    assert_eq!(
+        parse_str(r###"#'\#test'#"###),
+        Ok(ast::Interpolation {
+            is_bytes: true,
+            elements: vec![new_str("\test".to_string())]
+        })
+    );
 }

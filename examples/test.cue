@@ -4,5 +4,7 @@ lll:   l[:2]
 llll:  l[1:]
 lllll: l[:]
 
+s: 'Hello \127orld'
+
 
 i: [1 | "hello"]: "hello"

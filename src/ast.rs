@@ -1,3 +1,4 @@
+#[derive(Debug, PartialEq)]
 pub enum Operator {
     Add,      // +
     Subtract, // -
@@ -25,6 +26,8 @@ pub enum Operator {
     Match,    // =~
     NotMatch, // !~
 }
+
+#[derive(Debug, PartialEq)]
 pub enum BasicLitType {
     Int,
     Float,
@@ -32,10 +35,12 @@ pub enum BasicLitType {
     Duration,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Comment<'a> {
     pub text: &'a str,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct CommentGroup<'a> {
     pub doc: bool,
     pub line: bool,
@@ -44,25 +49,32 @@ pub struct CommentGroup<'a> {
     pub comments: Vec<Comment<'a>>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Ident<'a> {
     pub name: &'a str,
     // scope: Node,
     // node: Node,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Ellipsis<'a> {
     pub inner: Expr<'a>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct BasicLit<'a> {
     pub kind: BasicLitType,
-    pub value: &'a str,
+    pub value: String,
+    pub valuestr: Option<&'a str>,
 }
+
+#[derive(Debug, PartialEq)]
 pub struct ImportSpec<'a> {
     pub name: Ident<'a>,
     pub path: BasicLit<'a>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct File<'a> {
     pub name: &'a str,
     pub package: Option<&'a str>,
@@ -71,43 +83,53 @@ pub struct File<'a> {
     pub unresolved: Vec<Ident<'a>>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Attribute<'a> {
     pub text: &'a str,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Alias<'a> {
     pub ident: Ident<'a>,
     pub expr: Expr<'a>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Field<'a> {
     pub label: Label<'a>,
     pub value: Expr<'a>,
     pub attributes: Vec<Attribute<'a>>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Comprehension<'a> {
     pub clauses: Vec<Clause<'a>>,
     pub expr: Expr<'a>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct LetClause<'a> {
     pub alias: Ident<'a>,
     pub value: Expr<'a>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct ListLit<'a> {
     pub elements: Vec<Expr<'a>>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct StructLit<'a> {
     pub elements: Vec<Declaration<'a>>,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Interpolation<'a> {
+    pub is_bytes: bool,
     pub elements: Vec<Expr<'a>>,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Label<'a> {
     Ident(Ident<'a>),
     Alias(Alias<'a>),
@@ -115,6 +137,8 @@ pub enum Label<'a> {
     Paren(Expr<'a>),
     Bracket(Expr<'a>),
 }
+
+#[derive(Debug, PartialEq)]
 pub enum Declaration<'a> {
     CommentGroup(CommentGroup<'a>),
     Attribute(Attribute<'a>),
@@ -128,6 +152,7 @@ pub enum Declaration<'a> {
     EmbedDecl(Expr<'a>),
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Expr<'a> {
     Alias(Box<Alias<'a>>),
     Comprehension(Box<Comprehension<'a>>),
@@ -170,6 +195,7 @@ pub enum Expr<'a> {
     },
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Clause<'a> {
     If(Expr<'a>),
     For {
@@ -289,3 +315,11 @@ pub enum Clause<'a> {
 //         rhs: Box::new(rhs),
 //     }
 // }
+
+pub fn new_str<'a>(s: String) -> Expr<'a> {
+    Expr::BasicLit(BasicLit {
+        kind: BasicLitType::String,
+        value: s,
+        valuestr: None,
+    })
+}
