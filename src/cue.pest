@@ -3,7 +3,7 @@
 // "Production names starting with an uppercase Unicode letter denote non-terminal productions (i.e., productions which allow white-space and comments between tokens); all other production names denote lexical productions."
 // https://pest.rs/book/grammars/syntax.html#atomic
 
-newline        = _{ "\u{000A}" }
+newline        = { "\u{000A}" }
 unicode_char   = { !newline ~ ANY }
 unicode_letter = _{ LETTER }
 unicode_digit  = _{ DECIMAL_NUMBER }
@@ -41,6 +41,7 @@ big_u_value      = ${ escape_sequence ~ "U" ~ hex_digit{8} }
 Interpolation    = !{ escape_sequence ~ "(" ~ Expression ~ ")" }
 unicode_value    = ${ !(PEEK_ALL | escape_sequence) ~ unicode_char | little_u_value | big_u_value | escaped_char }
 byte_value       = ${ octal_byte_value | hex_byte_value }
+ending_indent    = @{ (" " | "\t")* }
 
 String       = { PUSH("#"*) ~ ( SimpleString
                               | MultilineString
@@ -48,18 +49,18 @@ String       = { PUSH("#"*) ~ ( SimpleString
                               | MultilineBytes
                               ) ~ POP }
 
-SimpleString    = { PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP }
-SimpleBytes     = { PUSH("'") ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
-MultilineString = { PUSH("\"\"\"")
-                  ~ newline
-                  ~ ( unicode_value | Interpolation | newline )*
-                  ~ newline
-                  ~ POP }
-MultilineBytes  = { PUSH("'''")
-                  ~ newline
-                  ~ ( unicode_value | Interpolation | byte_value | newline )*
-                  ~ newline
-                  ~ POP }
+SimpleString    = ${ !("\""{3}) ~ PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP }
+SimpleBytes     = ${ PUSH("'") ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
+MultilineString = ${ PUSH("\"\"\"")
+                  ~ "\n"
+                  ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | newline) )*
+                  ~ "\n"
+                  ~ ending_indent ~ POP }
+MultilineBytes  = ${ PUSH("'''")
+                  ~ "\n"
+                  ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | byte_value | newline) )*
+                  ~ "\n"
+                  ~ ending_indent ~ POP }
 
 bottom_lit = { "_|_" }
 null_lit   = { "null" }

@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Operator {
     Add,      // +
     Subtract, // -
@@ -27,7 +27,7 @@ pub enum Operator {
     NotMatch, // !~
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum BasicLitType {
     Int,
     Float,
@@ -35,12 +35,12 @@ pub enum BasicLitType {
     Duration,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Comment<'a> {
     pub text: &'a str,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct CommentGroup<'a> {
     pub doc: bool,
     pub line: bool,
@@ -49,32 +49,32 @@ pub struct CommentGroup<'a> {
     pub comments: Vec<Comment<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Ident<'a> {
     pub name: &'a str,
     // scope: Node,
     // node: Node,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Ellipsis<'a> {
     pub inner: Expr<'a>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct BasicLit<'a> {
     pub kind: BasicLitType,
     pub value: String,
     pub valuestr: Option<&'a str>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ImportSpec<'a> {
     pub name: Ident<'a>,
     pub path: BasicLit<'a>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct File<'a> {
     pub name: &'a str,
     pub package: Option<&'a str>,
@@ -83,53 +83,54 @@ pub struct File<'a> {
     pub unresolved: Vec<Ident<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Attribute<'a> {
     pub text: &'a str,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Alias<'a> {
     pub ident: Ident<'a>,
     pub expr: Expr<'a>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Field<'a> {
     pub label: Label<'a>,
+    pub optional: bool,
     pub value: Expr<'a>,
     pub attributes: Vec<Attribute<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Comprehension<'a> {
     pub clauses: Vec<Clause<'a>>,
     pub expr: Expr<'a>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct LetClause<'a> {
     pub alias: Ident<'a>,
     pub value: Expr<'a>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct ListLit<'a> {
     pub elements: Vec<Expr<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct StructLit<'a> {
     pub elements: Vec<Declaration<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Interpolation<'a> {
     pub is_bytes: bool,
     pub elements: Vec<Expr<'a>>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Label<'a> {
     Ident(Ident<'a>),
     Alias(Alias<'a>),
@@ -138,7 +139,7 @@ pub enum Label<'a> {
     Bracket(Expr<'a>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Declaration<'a> {
     CommentGroup(CommentGroup<'a>),
     Attribute(Attribute<'a>),
@@ -152,12 +153,14 @@ pub enum Declaration<'a> {
     EmbedDecl(Expr<'a>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Expr<'a> {
     Alias(Box<Alias<'a>>),
     Comprehension(Box<Comprehension<'a>>),
     Bad,
     Bottom,
+    Null,
+    Bool(bool),
     Ident(Ident<'a>),
     BasicLit(BasicLit<'a>),
     Interpolation(Interpolation<'a>),
@@ -195,7 +198,7 @@ pub enum Expr<'a> {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Clause<'a> {
     If(Expr<'a>),
     For {

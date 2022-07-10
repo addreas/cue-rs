@@ -12,9 +12,10 @@ type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
 fn interpolation_elements(input: Node) -> Result<Vec<ast::Expr>> {
     let mut current_str = String::new();
-    let mut iter = input.clone().into_children().peekable();
-    let mut res = vec![];
-    loop {
+    let mut string_parts = vec![];
+    let mut expr_parts = vec![];
+
+    for n in input.clone().into_children() {
         // println!(
         //     "interpolation_elements: {:?}",
         //     input
@@ -23,30 +24,52 @@ fn interpolation_elements(input: Node) -> Result<Vec<ast::Expr>> {
         //         .peekable()
         //         .next_if(|n| n.as_rule() != Rule::Interpolation)
         // );
-        if let Some(n) = iter.next_if(|n| n.as_rule() != Rule::Interpolation) {
-            let ch = match n.as_rule() {
-                Rule::escaped_char => CUEParser::escaped_char(n),
-                Rule::octal_byte_value => CUEParser::octal_byte_value(n),
-                Rule::hex_byte_value => CUEParser::hex_byte_value(n),
-                Rule::little_u_value => CUEParser::little_u_value(n),
-                Rule::big_u_value => CUEParser::big_u_value(n),
-                Rule::unicode_value => CUEParser::unicode_value(n),
-                Rule::byte_value => CUEParser::byte_value(n),
-                x => Err(n.error(format!("interpolation_elements: unknown node type {:?}", x))),
-            };
-            // println!("im here with {:?}!", ch);
+        match n.as_rule() {
+            Rule::escaped_char => current_str.push(CUEParser::escaped_char(n)?),
+            Rule::octal_byte_value => current_str.push(CUEParser::octal_byte_value(n)?),
+            Rule::hex_byte_value => current_str.push(CUEParser::hex_byte_value(n)?),
+            Rule::little_u_value => current_str.push(CUEParser::little_u_value(n)?),
+            Rule::big_u_value => current_str.push(CUEParser::big_u_value(n)?),
+            Rule::unicode_value => current_str.push(CUEParser::unicode_value(n)?),
+            Rule::byte_value => current_str.push(CUEParser::byte_value(n)?),
+            Rule::newline => current_str.push('\n'),
+            Rule::Interpolation => {
+                string_parts.push(current_str.clone());
+                current_str.clear();
 
-            current_str.push(ch?)
-        } else if let Some(n) = iter.next() {
-            res.push(ast::new_str(current_str.clone()));
-            res.push(CUEParser::Interpolation(n)?);
-            current_str.clear();
-        } else {
-            res.push(ast::new_str(current_str));
-            break;
+                expr_parts.push(CUEParser::Interpolation(n)?);
+            }
+            Rule::ending_indent => {
+                string_parts.push(current_str);
+
+                let pattern = format!("\n{}", n.as_str());
+                string_parts[0] = string_parts[0]
+                    .strip_prefix(n.as_str())
+                    .unwrap_or(string_parts[0].as_str())
+                    .to_string();
+                string_parts = string_parts
+                    .iter()
+                    .map(|s| s.replace(pattern.as_str(), "\n"))
+                    .collect();
+
+                break;
+            }
+            _ => unreachable!("interpolation_element: {:#?}", n.as_rule()),
         }
     }
-    return Ok(res);
+
+    let mut expr_iterator = expr_parts.iter();
+
+    return Ok(string_parts
+        .iter()
+        .map(|s| ast::new_str(s.clone()))
+        .intersperse_with(|| {
+            expr_iterator
+                .next()
+                .cloned()
+                .expect("grammar should ensure len(expr_parts) > len(string_parts)")
+        })
+        .collect());
 }
 
 fn parse_digits_radix(input: Node, radix: u32) -> Result<char> {
@@ -114,7 +137,6 @@ impl CUEParser {
             "G" => Ok(i64::pow(10, 9)),
             "T" => Ok(i64::pow(10, 12)),
             "P" => Ok(i64::pow(10, 15)),
-
             "Ki" => Ok(i64::pow(2, 10)),
             "Mi" => Ok(i64::pow(2, 20)),
             "Gi" => Ok(i64::pow(2, 30)),
@@ -145,7 +167,7 @@ impl CUEParser {
         ))
     }
     fn escaped_char(input: Node) -> Result<char> {
-        println!("escaped_char: {:?}", input.as_str());
+        // println!("escaped_char: {:?}", input.as_str());
         match input.as_str().chars().last() {
             Some('a') => Ok('\u{0007}'),
             Some('b') => Ok('\u{0008}'),
@@ -159,23 +181,23 @@ impl CUEParser {
         }
     }
     fn octal_byte_value(input: Node) -> Result<char> {
-        println!("octal_byte_value: {:?}", input.as_str());
+        // println!("octal_byte_value: {:?}", input.as_str());
         parse_digits_radix(input, 8)
     }
     fn hex_byte_value(input: Node) -> Result<char> {
-        println!("hex_byte_value: {:?}", input.as_str());
+        // println!("hex_byte_value: {:?}", input.as_str());
         parse_digits_radix(input, 16)
     }
     fn little_u_value(input: Node) -> Result<char> {
-        println!("littel_u_value: {:?}", input.as_str());
+        // println!("littel_u_value: {:?}", input.as_str());
         parse_digits_radix(input, 16)
     }
     fn big_u_value(input: Node) -> Result<char> {
-        println!("big_u_value: {:?}", input.as_str());
+        // println!("big_u_value: {:?}", input.as_str());
         parse_digits_radix(input, 16)
     }
     fn unicode_value(input: Node) -> Result<char> {
-        println!("unicode_value: {:?}", input.as_str());
+        // println!("unicode_value: {:?}", input.as_str());
         Ok(match_nodes!(input.clone().into_children();
             [little_u_value(c)] => c,
             [big_u_value(c)] => c,
@@ -184,18 +206,18 @@ impl CUEParser {
         ))
     }
     fn byte_value(input: Node) -> Result<char> {
-        println!("byte_value: {:?}", input.as_str());
+        // println!("byte_value: {:?}", input.as_str());
         Ok(match_nodes!(input.into_children();
             [octal_byte_value(c)] => c,
             [hex_byte_value(c)] => c,
         ))
     }
     fn Interpolation(input: Node) -> Result<ast::Expr> {
-        println!("Iterpolation: {:?}", input.as_str());
+        // println!("Iterpolation: {:?}", input.as_str());
         CUEParser::Expression(input.into_children().single()?)
     }
     fn String(input: Node) -> Result<ast::Interpolation> {
-        println!("String: {:?}", input.as_str());
+        // println!("String: {:?}", input.as_str());
         Ok(match_nodes!(input.into_children();
             [SimpleString(s)] => s,
             [MultilineString(s)] => s,
@@ -203,47 +225,56 @@ impl CUEParser {
             [MultilineBytes(s)] => s))
     }
     fn SimpleString(input: Node) -> Result<ast::Interpolation> {
+        // println!("SimpleString: {:?}", input);
         Ok(ast::Interpolation {
             is_bytes: false,
             elements: interpolation_elements(input)?,
         })
     }
     fn SimpleBytes(input: Node) -> Result<ast::Interpolation> {
-        println!("{}", input);
+        // println!("SimpleBytes: {:?}", input);
         Ok(ast::Interpolation {
             is_bytes: true,
             elements: interpolation_elements(input)?,
         })
     }
     fn MultilineString(input: Node) -> Result<ast::Interpolation> {
+        // println!("MultilineString: {:?}", input);
         Ok(ast::Interpolation {
             is_bytes: false,
             elements: interpolation_elements(input)?,
         })
     }
     fn MultilineBytes(input: Node) -> Result<ast::Interpolation> {
+        // println!("MultilineBytes: {:?}", input);
         Ok(ast::Interpolation {
             is_bytes: true,
             elements: interpolation_elements(input)?,
         })
     }
-    fn bottom_lit(input: Node) -> Result<()> {
-        Ok(())
+    fn bottom_lit(input: Node) -> Result<ast::Expr> {
+        Ok(ast::Expr::Bottom)
     }
-    fn null_lit(input: Node) -> Result<()> {
-        Ok(())
+    fn null_lit(input: Node) -> Result<ast::Expr> {
+        Ok(ast::Expr::Null)
     }
-    fn bool_lit(input: Node) -> Result<()> {
-        Ok(())
+    fn bool_lit(input: Node) -> Result<ast::Expr> {
+        match input.as_str() {
+            "true" => Ok(ast::Expr::Bool(true)),
+            "false" => Ok(ast::Expr::Bool(false)),
+            _ => Err(input.error(format!("unknown boolean type: {:?}", input))),
+        }
     }
-    fn StructLit(input: Node) -> Result<()> {
-        Ok(())
+    fn StructLit(input: Node) -> Result<ast::StructLit> {
+        Ok(ast::StructLit { elements: vec![] })
     }
     fn Declaration(input: Node) -> Result<ast::Declaration> {
         Ok(ast::Declaration::BadDecl)
     }
-    fn Ellipsis(input: Node) -> Result<()> {
-        Ok(())
+    fn Ellipsis(input: Node) -> Result<ast::Ellipsis> {
+        Ok(ast::Ellipsis {
+            inner: CUEParser::Expression(input.into_children().single()?)?,
+        })
     }
     fn Embedding(input: Node) -> Result<()> {
         Ok(())
@@ -434,14 +465,48 @@ fn strings() {
     // );
     let parse_str = |str| {
         let parsed = CUEParser::parse(Rule::String, str)?.single()?;
-        println!("{:#?}", parsed);
+        // println!("{:#?}", parsed);
         CUEParser::String(parsed)
     };
+    let str = |s: &str| ast::Interpolation {
+        is_bytes: false,
+        elements: vec![new_str(s.to_string())],
+    };
+    let bytes = |s: &str| ast::Interpolation {
+        is_bytes: false,
+        elements: vec![new_str(s.to_string())],
+    };
+
+    // assert_eq!(
+    //     parse_str(r###"#'\#test'#"###),
+    //     Ok(ast::Interpolation {
+    //         is_bytes: true,
+    //         elements: vec![new_str("\test".to_string())]
+    //     })
+    // );
+    assert_eq!(parse_str(r#""test""#), Ok(str("test")));
+    assert_eq!(parse_str(r##"#""test""#"##), Ok(str(r#""test""#)));
+    assert_eq!(parse_str(r"'test'"), Ok(bytes("test")));
+    assert_eq!(parse_str(r##"#"test"#"##), Ok(str("test")));
+    assert_eq!(parse_str(r"#''test''#"), Ok(bytes("'test'")));
     assert_eq!(
-        parse_str(r###"#'\#test'#"###),
-        Ok(ast::Interpolation {
-            is_bytes: true,
-            elements: vec![new_str("\test".to_string())]
-        })
+        parse_str(
+            r#""""
+            test
+            test
+
+            """"#
+        ),
+        Ok(str("test\ntest\n"))
+    );
+    assert_eq!(
+        parse_str(
+            r#"'''
+            test
+            test
+
+            '''"#
+        ),
+        Ok(bytes("test\ntest\n"))
     );
 }
