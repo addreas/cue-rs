@@ -1,4 +1,5 @@
 #![feature(iter_intersperse)]
+#![feature(iterator_try_collect)]
 pub mod ast;
 pub mod parser;
 

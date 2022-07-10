@@ -28,14 +28,6 @@ pub enum Operator {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum BasicLitType {
-    Int,
-    Float,
-    String,
-    Duration,
-}
-
-#[derive(Debug, PartialEq, Clone)]
 pub struct Comment<'a> {
     pub text: &'a str,
 }
@@ -62,11 +54,22 @@ pub struct Ellipsis<'a> {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct BasicLit<'a> {
-    pub kind: BasicLitType,
-    pub value: String,
-    pub valuestr: Option<&'a str>,
+pub enum BasicLit<'a> {
+    Bottom,
+    Null,
+    Bool(bool),
+    Int(i64),
+    Float(f64),
+    String(String),
+    Str(&'a str),
+    // Duration,
 }
+
+// #[derive(Debug, PartialEq, Clone)]
+// pub struct BasicLit<'a> {
+//     pub kind: BasicLitType<'a>,
+//     pub value: String,
+// }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ImportSpec<'a> {
@@ -97,7 +100,6 @@ pub struct Alias<'a> {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Field<'a> {
     pub label: Label<'a>,
-    pub optional: bool,
     pub value: Expr<'a>,
     pub attributes: Vec<Attribute<'a>>,
 }
@@ -134,7 +136,7 @@ pub struct Interpolation<'a> {
 pub enum Label<'a> {
     Ident(Ident<'a>),
     Alias(Alias<'a>),
-    Basic(BasicLit<'a>),
+    Basic(Interpolation<'a>),
     Paren(Expr<'a>),
     Bracket(Expr<'a>),
 }
@@ -150,7 +152,7 @@ pub enum Declaration<'a> {
     LetClause(LetClause<'a>),
     BadDecl,
     ImportDecl(Vec<ImportSpec<'a>>),
-    EmbedDecl(Expr<'a>),
+    Embedding(Expr<'a>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -158,9 +160,6 @@ pub enum Expr<'a> {
     Alias(Box<Alias<'a>>),
     Comprehension(Box<Comprehension<'a>>),
     Bad,
-    Bottom,
-    Null,
-    Bool(bool),
     Ident(Ident<'a>),
     BasicLit(BasicLit<'a>),
     Interpolation(Interpolation<'a>),
@@ -320,9 +319,5 @@ pub enum Clause<'a> {
 // }
 
 pub fn new_str<'a>(s: String) -> Expr<'a> {
-    Expr::BasicLit(BasicLit {
-        kind: BasicLitType::String,
-        value: s,
-        valuestr: None,
-    })
+    Expr::BasicLit(BasicLit::String(s))
 }

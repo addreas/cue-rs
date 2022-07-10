@@ -148,23 +148,23 @@ impl CUEParser {
     fn exponent(input: Node) -> Result<i32> {
         Ok(match_nodes!(input.into_children(); [decimal_lit(n)] => n as i32))
     }
-    fn int_lit(input: Node) -> Result<i64> {
-        Ok(match_nodes!(input.into_children();
+    fn int_lit(input: Node) -> Result<ast::BasicLit> {
+        Ok(ast::BasicLit::Int(match_nodes!(input.into_children();
             [si_lit(n)] => n,
             [decimal_lit(n)] => n,
             [binary_lit(n)] => n,
             [octal_lit(n)] => n,
             [hex_lit(n)] => n,
-        ))
+        )))
     }
-    fn float_lit(input: Node) -> Result<f64> {
-        Ok(match_nodes!(input.into_children();
+    fn float_lit(input: Node) -> Result<ast::BasicLit> {
+        Ok(ast::BasicLit::Float(match_nodes!(input.into_children();
             [decimal_lit(a), fraction(b), exponent(e)] => (a as f64 + b) * f64::powi(10.0, e),
             [decimal_lit(a), fraction(b)             ] =>  a as f64 + b,
             [decimal_lit(a),              exponent(e)] =>  a as f64      * f64::powi(10.0, e),
             [                fraction(b), exponent(e)] =>             b  * f64::powi(10.0, e),
             [                fraction(b)             ] =>             b,
-        ))
+        )))
     }
     fn escaped_char(input: Node) -> Result<char> {
         // println!("escaped_char: {:?}", input.as_str());
@@ -252,59 +252,110 @@ impl CUEParser {
             elements: interpolation_elements(input)?,
         })
     }
-    fn bottom_lit(input: Node) -> Result<ast::Expr> {
-        Ok(ast::Expr::Bottom)
+    fn bottom_lit(input: Node) -> Result<ast::BasicLit> {
+        Ok(ast::BasicLit::Bottom)
     }
-    fn null_lit(input: Node) -> Result<ast::Expr> {
-        Ok(ast::Expr::Null)
+    fn null_lit(input: Node) -> Result<ast::BasicLit> {
+        Ok(ast::BasicLit::Null)
     }
-    fn bool_lit(input: Node) -> Result<ast::Expr> {
+    fn bool_lit(input: Node) -> Result<ast::BasicLit> {
         match input.as_str() {
-            "true" => Ok(ast::Expr::Bool(true)),
-            "false" => Ok(ast::Expr::Bool(false)),
+            "true" => Ok(ast::BasicLit::Bool(true)),
+            "false" => Ok(ast::BasicLit::Bool(false)),
             _ => Err(input.error(format!("unknown boolean type: {:?}", input))),
         }
     }
     fn StructLit(input: Node) -> Result<ast::StructLit> {
-        Ok(ast::StructLit { elements: vec![] })
+        Ok(ast::StructLit {
+            elements: input
+                .into_children()
+                .map(|c| CUEParser::Declaration(c))
+                .try_collect()?,
+        })
     }
     fn Declaration(input: Node) -> Result<ast::Declaration> {
-        Ok(ast::Declaration::BadDecl)
+        Ok(match_nodes!(input.into_children();
+            [Field(f)] => ast::Declaration::Field(f),
+            [Ellipsis(e)] => ast::Declaration::Ellipsis(e),
+            [Embedding(e)] => ast::Declaration::Embedding(e),
+            [attribute(e)] => ast::Declaration::Attribute(e),
+        ))
     }
     fn Ellipsis(input: Node) -> Result<ast::Ellipsis> {
         Ok(ast::Ellipsis {
             inner: CUEParser::Expression(input.into_children().single()?)?,
         })
     }
-    fn Embedding(input: Node) -> Result<()> {
-        Ok(())
+    fn Embedding(input: Node) -> Result<ast::Expr> {
+        Ok(match_nodes!(input.into_children();
+            [Comprehension(c)] => ast::Expr::Comprehension(Box::new(c)),
+            [AliasExpr(a)] => a,
+        ))
     }
-    fn Field(input: Node) -> Result<()> {
-        Ok(())
+    fn Field(input: Node) -> Result<ast::Field> {
+        match_nodes!(input.into_children();
+        [Labels(ls), AliasExpr(value), attribute(attributes)..] => {
+            let mut lss = ls.clone();
+            let mut lsi = lss.iter_mut();
+            let init = ast::Field {
+                label: lsi.next().expect("nonempty list").clone(),
+                value: value,
+                attributes: attributes.collect(),
+            };
+            return Ok(lsi.rfold(init, |acc, label| ast::Field {
+                label: label.clone(),
+                value: ast::Expr::Struct(ast::StructLit {
+                    elements: vec![ast::Declaration::Field(acc)],
+                }),
+                attributes: vec![],
+            }));
+        })
     }
-    fn Label(input: Node) -> Result<()> {
-        Ok(())
+    fn Labels(input: Node) -> Result<Vec<ast::Label>> {
+        Ok(match_nodes!(input.into_children();
+            [Label(labels)..] => labels.collect()))
     }
-    fn LabelExpr(input: Node) -> Result<()> {
-        Ok(())
+    fn Label(input: Node) -> Result<ast::Label> {
+        Ok(match_nodes!(input.into_children();
+            [LabelName(n)] => n,
+            [Expression(e)] => ast::Label::Paren(e),
+            [AliasExpr(a)] => ast::Label::Bracket(a),
+        ))
     }
-    fn LabelName(input: Node) -> Result<()> {
-        Ok(())
+    fn LabelName(input: Node) -> Result<ast::Label> {
+        Ok(match_nodes!(input.into_children();
+            [identifier(i)] => ast::Label::Ident(i),
+            [SimpleString(s)] => ast::Label::Basic(s)
+        ))
     }
-    fn attribute(input: Node) -> Result<()> {
-        Ok(())
+    fn attribute(input: Node) -> Result<ast::Attribute> {
+        Ok(ast::Attribute {
+            text: input.as_str(),
+        })
     }
     fn attr_tokens(input: Node) -> Result<()> {
-        Ok(())
+        Err(input.error("attr_tokens should be unreachable"))
     }
     fn attr_token(input: Node) -> Result<()> {
-        Ok(())
+        Err(input.error("attr_token should be unreachable"))
     }
-    fn AliasExpr(input: Node) -> Result<()> {
-        Ok(())
+    fn AliasExpr(input: Node) -> Result<ast::Expr> {
+        Ok(match_nodes!(input.into_children();
+            [identifier(ident), Expression(expr)] => ast::Expr::Alias(Box::new(ast::Alias {
+                ident,
+                expr,
+            })),
+            [Expression(expr)] => expr
+        ))
     }
     fn ListLit(input: Node) -> Result<()> {
         Ok(())
+        // Ok(ast::ListLit {
+        //     elements: input
+        //         .into_children()
+        //         .iter()
+        //         .map(|n| CUEParser::ElementList(n)?),
+        // })
     }
     fn ElementList(input: Node) -> Result<()> {
         Ok(())
@@ -315,8 +366,14 @@ impl CUEParser {
     fn Operand(input: Node) -> Result<()> {
         Ok(())
     }
-    fn BasicLit(input: Node) -> Result<()> {
-        Ok(())
+    fn BasicLit(input: Node) -> Result<ast::BasicLit> {
+        match_nodes!(input.into_children();
+            [int_lit(l)] => Ok(l),
+            [float_lit(l)] => Ok(l),
+            [bool_lit(l)] => Ok(l),
+            [null_lit(l)] => Ok(l),
+            [bottom_lit(l)] => Ok(l),
+        )
     }
     fn OperandName(input: Node) -> Result<()> {
         Ok(())
@@ -360,8 +417,11 @@ impl CUEParser {
     fn unary_op(input: Node) -> Result<()> {
         Ok(())
     }
-    fn Comprehension(input: Node) -> Result<()> {
-        Ok(())
+    fn Comprehension(input: Node) -> Result<ast::Comprehension> {
+        Ok(ast::Comprehension {
+            expr: todo!(),
+            clauses: todo!(),
+        })
     }
     fn Clauses(input: Node) -> Result<()> {
         Ok(())
@@ -413,9 +473,15 @@ impl CUEParser {
     }
 }
 
+fn parse_float(input: &str) -> Result<f64> {
+    match CUEParser::float_lit(CUEParser::parse(Rule::float_lit, input)?.single()?)? {
+        ast::BasicLit::Float(f) => Ok(f),
+        _ => unreachable!(),
+    }
+}
+
 #[test]
 fn test_float() {
-    let parse_float = |str| CUEParser::float_lit(CUEParser::parse(Rule::float_lit, str)?.single()?);
     assert_eq!(parse_float("0.0"), Ok(0.0));
     assert_eq!(parse_float("1.0"), Ok(1.0));
     assert_eq!(parse_float("-1.0"), Ok(-1.0));
@@ -436,9 +502,15 @@ fn test_float() {
     // assert_eq!(parse_float("3.14e-4"), Ok(3.14e-4));
 }
 
+fn parse_int(input: &str) -> Result<i64> {
+    match CUEParser::int_lit(CUEParser::parse(Rule::int_lit, input)?.single()?)? {
+        ast::BasicLit::Int(n) => Ok(n),
+        _ => unreachable!(),
+    }
+}
+
 #[test]
 fn test_int() {
-    let parse_int = |str| CUEParser::int_lit(CUEParser::parse(Rule::int_lit, str)?.single()?);
     assert_eq!(parse_int("1"), Ok(1));
     assert_eq!(parse_int("0"), Ok(0));
     assert_eq!(parse_int("100_000"), Ok(100_000));
@@ -448,8 +520,14 @@ fn test_int() {
     assert_eq!(parse_int("3Ki"), Ok(3 * 1024));
 }
 
+fn parse_str(input: &str) -> Result<ast::Interpolation> {
+    let parsed = CUEParser::parse(Rule::String, input)?.single()?;
+    // println!("{:#?}", parsed);
+    CUEParser::String(parsed)
+}
+
 #[test]
-fn strings() {
+fn test_strings() {
     // println!(
     //     "{:#?}",
     //     CUEParser::String(
@@ -463,11 +541,6 @@ fn strings() {
     //     "{:#?}",
     //     CUEParser::parse(Rule::String, "\"hello \\(1+1) world\"")
     // );
-    let parse_str = |str| {
-        let parsed = CUEParser::parse(Rule::String, str)?.single()?;
-        // println!("{:#?}", parsed);
-        CUEParser::String(parsed)
-    };
     let str = |s: &str| ast::Interpolation {
         is_bytes: false,
         elements: vec![new_str(s.to_string())],
@@ -508,5 +581,36 @@ fn strings() {
             '''"#
         ),
         Ok(bytes("test\ntest\n"))
+    );
+}
+
+fn parse_struct(input: &str) -> Result<ast::StructLit> {
+    return CUEParser::StructLit(CUEParser::parse(Rule::StructLit, input)?.single()?);
+}
+
+fn parse_basic_lit_expr(input: &str) -> Result<ast::Expr> {
+    return Ok(ast::Expr::BasicLit(CUEParser::BasicLit(
+        CUEParser::parse(Rule::BasicLit, input)?.single()?,
+    )?));
+}
+
+#[test]
+fn test_struct() {
+    assert_eq!(
+        parse_struct(
+            r#"{
+    identifier: 0,
+    "quoted": 1,
+    [brackets=string]: 2,
+    (parenthesis): 3,
+}"#
+        ),
+        Ok(ast::StructLit {
+            elements: vec![ast::Declaration::Field(ast::Field {
+                attributes: vec![],
+                label: ast::Label::Ident(ast::Ident { name: "identifier" }),
+                value: parse_basic_lit_expr("0").unwrap()
+            })]
+        })
     );
 }

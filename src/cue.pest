@@ -66,25 +66,25 @@ bottom_lit = { "_|_" }
 null_lit   = { "null" }
 bool_lit   = { "true" | "false" }
 
-StructLit       = { "{" ~ ( Declaration ~ "," )* ~ "}" }
+StructLit       = { "{" ~ ( Declaration ~ "," )* ~ Declaration? ~ "}" }
 Declaration     = { Field | Ellipsis | Embedding | attribute }
 Ellipsis        = { "..." ~ Expression? }
 Embedding       = { Comprehension | AliasExpr }
-Field           = { Label ~ ":" ~ ( Label ~ ":" )* ~ AliasExpr ~ attribute* }
-Label           = { ( identifier ~ "=" ) ~ LabelExpr }
-LabelExpr       = { ( LabelName ~ "?"? )
+Field           = { Labels ~ AliasExpr ~ attribute* }
+Labels          = { ( Label ~ ":" )+ }
+Label           = { ( LabelName ~ "?"? )
                   | ( "[" ~ AliasExpr ~ "]" )
-                  | ( "(" ~ AliasExpr ~ ")" )
+                  | ( "(" ~ Expression ~ ")" )
                   }
 LabelName       = { identifier | SimpleString  }
 
-attribute       = @{ "@" ~ identifier ~ "(" ~ attr_tokens ~ ")" }
-attr_tokens     = @{ ( attr_token
+attribute       = { "@" ~ identifier ~ "(" ~ attr_tokens ~ ")" }
+attr_tokens     = { ( attr_token
                      | ( "(" ~ attr_tokens ~ ")" )
                      | ( "[" ~ attr_tokens ~ "]" )
                      | ( "{" ~ attr_tokens ~ "}" )
                      )* }
-attr_token      = @{ !( "(" | ")" | "[" | "]" | "{" | "}" ) ~ ANY }
+attr_token      = { !( "(" | ")" | "[" | "]" | "{" | "}" ) ~ ANY }
 
 AliasExpr  = { ( identifier ~ "=" )? ~ Expression }
 

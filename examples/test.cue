@@ -6,5 +6,7 @@ lllll: l[:]
 
 s: 'Hello \127orld'
 
+struct: {a: 1 b: 2}
+
 
 i: [1 | "hello"]: "hello"
