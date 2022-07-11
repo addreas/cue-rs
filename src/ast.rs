@@ -73,17 +73,18 @@ pub enum BasicLit<'a> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ImportSpec<'a> {
-    pub name: Ident<'a>,
+    pub alias: Ident<'a>,
     pub path: BasicLit<'a>,
+    pub package: Option<Ident<'a>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct File<'a> {
     pub name: &'a str,
-    pub package: Option<&'a str>,
+    pub package: Option<Ident<'a>>,
     pub declarations: Vec<Declaration<'a>>,
-    pub imports: Vec<ImportSpec<'a>>,
-    pub unresolved: Vec<Ident<'a>>,
+    pub imports: Vec<Declaration<'a>>,
+    pub attributes: Vec<Attribute<'a>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -161,6 +162,7 @@ pub enum Expr<'a> {
     Comprehension(Box<Comprehension<'a>>),
     Bad,
     Ident(Ident<'a>),
+    QualifiedIdent(Ident<'a>, Ident<'a>),
     BasicLit(BasicLit<'a>),
     Interpolation(Interpolation<'a>),
     Struct(StructLit<'a>),

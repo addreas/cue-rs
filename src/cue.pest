@@ -122,7 +122,7 @@ binary_op  = { "|" | "&" | "||" | "&&" | "==" | rel_op | add_op | mul_op  }
 rel_op     = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
 add_op     = { "+" | "-" }
 mul_op     = { "*" | "/" }
-unary_op   = { "+" | "-" | "!" | "*" | rel_op }
+unary_op   = { "!" | "*" | rel_op | add_op }
 
 Comprehension = { Clauses ~ StructLit }
 
