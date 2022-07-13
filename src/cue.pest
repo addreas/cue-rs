@@ -50,7 +50,7 @@ String       = { PUSH("#"*) ~ ( SimpleString
                               ) ~ POP }
 
 SimpleString    = ${ !("\""{3}) ~ PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP }
-SimpleBytes     = ${ PUSH("'") ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
+SimpleBytes     = ${ !("'"{3})  ~ PUSH("'")  ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
 MultilineString = ${ PUSH("\"\"\"")
                   ~ "\n"
                   ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | newline) )*

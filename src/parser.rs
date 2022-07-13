@@ -2,7 +2,7 @@ use std::vec;
 
 use pest::prec_climber::{PrecClimber,Operator,Assoc};
 
-use crate::ast::{self, new_str};
+use crate::ast::{self};
 use pest_consume::{match_nodes, Error, Parser};
 
 #[derive(Parser)]
@@ -32,14 +32,7 @@ fn interpolation_elements(input: Node) -> Result<Vec<ast::Expr>> {
     let mut expr_parts = vec![];
 
     for n in input.clone().into_children() {
-        // println!(
-        //     "interpolation_elements: {:?}",
-        //     input
-        //         .clone()
-        //         .into_children()
-        //         .peekable()
-        //         .next_if(|n| n.as_rule() != Rule::Interpolation)
-        // );
+        // println!("interpolation_elements: {:?}: {}", n.as_rule(), n.as_str());
         match n.as_rule() {
             Rule::escaped_char => current_str.push(CUEParser::escaped_char(n)?),
             Rule::octal_byte_value => current_str.push(CUEParser::octal_byte_value(n)?),
@@ -56,23 +49,22 @@ fn interpolation_elements(input: Node) -> Result<Vec<ast::Expr>> {
                 expr_parts.push(CUEParser::Interpolation(n)?);
             }
             Rule::ending_indent => {
-                string_parts.push(current_str);
-
                 let pattern = format!("\n{}", n.as_str());
-                string_parts[0] = string_parts[0]
-                    .strip_prefix(n.as_str())
-                    .unwrap_or(string_parts[0].as_str())
-                    .to_string();
+                current_str = current_str
+                    .trim_start_matches(n.as_str())
+                    .to_string()
+                    .replace(pattern.as_str(), "\n");
+
                 string_parts = string_parts
                     .iter()
+                    .inspect(|s| println!("replacing '{}' in '{}'", pattern, s))
                     .map(|s| s.replace(pattern.as_str(), "\n"))
                     .collect();
-
-                break;
             }
-            _ => unreachable!("interpolation_element: {:#?}", n.as_rule()),
+            _ => unreachable!("unreachable interpolation_element: {:#?}", n.as_rule()),
         }
     }
+    string_parts.push(current_str);
 
     let mut expr_iterator = expr_parts.iter();
 
@@ -723,11 +715,11 @@ fn test_strings() {
     // );
     let str = |s: &str| ast::Interpolation {
         is_bytes: false,
-        elements: vec![new_str(s.to_string())],
+        elements: vec![ast::new_str(s.to_string())],
     };
     let bytes = |s: &str| ast::Interpolation {
-        is_bytes: false,
-        elements: vec![new_str(s.to_string())],
+        is_bytes: true,
+        elements: vec![ast::new_str(s.to_string())],
     };
 
     // assert_eq!(
