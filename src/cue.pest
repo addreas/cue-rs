@@ -118,7 +118,7 @@ UnaryExpr  = { PrimaryExpr | ( unary_op ~ UnaryExpr ) }
 Expression = { UnaryExpr ~ (binary_op ~ UnaryExpr)* }
 
 
-binary_op   = { disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op  }
+binary_op   = _{ disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op  }
 disjunct_op = { "|" }
 conjuct_op  = { "&" }
 or_op       = { "||" }

@@ -1,6 +1,6 @@
 use std::vec;
 
-use pest::{prec_climber::{PrecClimber,Operator,Assoc}, iterators::Pair};
+use pest::{prec_climber::{PrecClimber,Operator,Assoc}};
 
 use crate::ast;
 use pest_consume::{match_nodes, Error, Parser};
@@ -26,6 +26,7 @@ lazy_static::lazy_static! {
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 
+#[allow(unused_macros)]
 macro_rules! parse_single {
     ($rule:ident, $input:expr) =>  {
         CUEParser::parse(Rule::$rule, $input)
@@ -99,6 +100,24 @@ fn parse_digits_radix(input: Node, radix: u32) -> Result<char> {
         _ => Err(input.error("parse_digits_radix: invalid digits")),
     }
 }
+
+fn binary_op(input: Node) -> Result<ast::Operator> {
+    match input.as_rule() {
+        Rule::rel_op => CUEParser::rel_op(input),
+        Rule::add_op => CUEParser::add_op(input),
+        Rule::mul_op => CUEParser::mul_op(input),
+        Rule::binary_op => match input.into_children().single()?.as_rule() {
+            Rule::disjunct_op => Ok(ast::Operator::Disjunct),
+            Rule::conjuct_op => Ok(ast::Operator::Conjunct),
+            Rule::or_op => Ok(ast::Operator::Or),
+            Rule::and_op => Ok(ast::Operator::And),
+            Rule::equal_op => Ok(ast::Operator::Equal),
+            x => panic!("binary_op {:?}", x),
+        },
+        x => panic!("binary_op {:?}", x),
+    }
+}
+
 // This is the other half of the parser, using pest_consume.
 #[pest_consume::parser]
 #[allow(dead_code, non_snake_case)]
@@ -164,23 +183,23 @@ impl CUEParser {
     fn exponent(input: Node) -> Result<i32> {
         Ok(match_nodes!(input.into_children(); [decimal_lit(n)] => n as i32))
     }
-    fn int_lit(input: Node) -> Result<ast::BasicLit> {
-        Ok(ast::BasicLit::Int(match_nodes!(input.into_children();
+    fn int_lit(input: Node) -> Result<i64> {
+        Ok(match_nodes!(input.into_children();
             [si_lit(n)] => n,
             [decimal_lit(n)] => n,
             [binary_lit(n)] => n,
             [octal_lit(n)] => n,
             [hex_lit(n)] => n,
-        )))
+        ))
     }
-    fn float_lit(input: Node) -> Result<ast::BasicLit> {
-        Ok(ast::BasicLit::Float(match_nodes!(input.into_children();
+    fn float_lit(input: Node) -> Result<f64> {
+        Ok(match_nodes!(input.into_children();
             [decimal_lit(a), fraction(b), exponent(e)] => (a as f64 + b) * f64::powi(10.0, e),
             [decimal_lit(a), fraction(b)             ] =>  a as f64 + b,
             [decimal_lit(a),              exponent(e)] =>  a as f64      * f64::powi(10.0, e),
             [                fraction(b), exponent(e)] =>             b  * f64::powi(10.0, e),
             [                fraction(b)             ] =>             b,
-        )))
+        ))
     }
     fn escaped_char(input: Node) -> Result<char> {
         // println!("escaped_char: {:?}", input.as_str());
@@ -268,17 +287,17 @@ impl CUEParser {
             elements: interpolation_elements(input)?,
         })
     }
-    fn bottom_lit(input: Node) -> Result<ast::BasicLit> {
-        Ok(ast::BasicLit::Bottom)
+    fn bottom_lit(input: Node) -> Result<()> {
+        Ok(())
     }
-    fn null_lit(input: Node) -> Result<ast::BasicLit> {
-        Ok(ast::BasicLit::Null)
+    fn null_lit(input: Node) -> Result<()> {
+        Ok(())
     }
-    fn bool_lit(input: Node) -> Result<ast::BasicLit> {
+    fn bool_lit(input: Node) -> Result<bool> {
         match input.as_str() {
-            "true" => Ok(ast::BasicLit::Bool(true)),
-            "false" => Ok(ast::BasicLit::Bool(false)),
-            _ => Err(input.error(format!("unknown boolean type: {:?}", input))),
+            "true" => Ok(true),
+            "false" => Ok(false),
+            _ => unreachable!(),
         }
     }
     fn StructLit(input: Node) -> Result<ast::StructLit> {
@@ -393,11 +412,11 @@ impl CUEParser {
     }
     fn BasicLit(input: Node) -> Result<ast::BasicLit> {
         match_nodes!(input.into_children();
-            [int_lit(l)] => Ok(l),
-            [float_lit(l)] => Ok(l),
-            [bool_lit(l)] => Ok(l),
-            [null_lit(l)] => Ok(l),
-            [bottom_lit(l)] => Ok(l),
+            [int_lit(l)] => Ok(ast::BasicLit::Int(l)),
+            [float_lit(l)] => Ok(ast::BasicLit::Float(l)),
+            [bool_lit(l)] => Ok(ast::BasicLit::Bool(l)),
+            [null_lit(_)] => Ok(ast::BasicLit::Null),
+            [bottom_lit(_)] => Ok(ast::BasicLit::Bottom),
         )
     }
     fn OperandName(input: Node) -> Result<ast::Expr> {
@@ -471,25 +490,20 @@ impl CUEParser {
             child: Box::new(child)
         }))
     }
-    
     fn Expression(input: Node) -> Result<ast::Expr> {
-        let primary = |p| {
-            // assert!(p.clone().as_rule() == Rule::UnaryExpr);
-            println!("primary: {:?}", p);
-            CUEParser::UnaryExpr(Node::new(p))
-        };
         let infix = |lhs, op, rhs| {
-            println!("infix: {:?} {:?} {:?}", lhs, op, rhs);
             Ok(ast::Expr::BinaryExpr {
                 lhs: Box::new(lhs?),
-                op: CUEParser::binary_op(Node::new(op)).expect("should be like this"),
+                op: binary_op(Node::new(op))?,
                 rhs: Box::new(rhs?)
             })
         };
-            
-        println!("pre prec climb: {:?}", input.clone());
         
-        PRECCLIMBER.climb(input.into_children().into_pairs(), primary, infix)
+        PRECCLIMBER.climb(
+            input.into_children().into_pairs(),
+            |p| CUEParser::UnaryExpr(Node::new(p)),
+            infix
+        )
     }
     fn rel_op(input: Node) -> Result<ast::Operator> {
         match input.as_str() {
@@ -515,22 +529,6 @@ impl CUEParser {
             "*" => Ok(ast::Operator::Multiply),
             "-" => Ok(ast::Operator::Divide),
             x => unreachable!("mul_op {}", x),
-        }
-    }
-    fn binary_op(input: Node) -> Result<ast::Operator> {
-        match input.as_rule() {
-            Rule::rel_op => CUEParser::rel_op(input),
-            Rule::add_op => CUEParser::add_op(input),
-            Rule::mul_op => CUEParser::mul_op(input),
-            Rule::binary_op => match input.into_children().single()?.as_rule() {
-                Rule::disjunct_op => Ok(ast::Operator::Disjunct),
-                Rule::conjuct_op => Ok(ast::Operator::Conjunct),
-                Rule::or_op => Ok(ast::Operator::Or),
-                Rule::and_op => Ok(ast::Operator::And),
-                Rule::equal_op => Ok(ast::Operator::Equal),
-                x => panic!("binary_op {:?}", x),
-            },
-            x => panic!("binary_op {:?}", x),
         }
     }
     fn unary_op(input: Node) -> Result<ast::Operator> {
@@ -663,15 +661,9 @@ impl CUEParser {
     }
 }
 
-fn parse_float(input: &str) -> Result<f64> {
-    match CUEParser::float_lit(CUEParser::parse(Rule::float_lit, input)?.single()?)? {
-        ast::BasicLit::Float(f) => Ok(f),
-        _ => unreachable!(),
-    }
-}
-
 #[test]
 fn test_float() {
+    let parse_float = |i| parse_single!(float_lit, i);
     assert_eq!(parse_float("0.0"), Ok(0.0));
     assert_eq!(parse_float("1.0"), Ok(1.0));
     assert_eq!(parse_float("-1.0"), Ok(-1.0));
@@ -692,15 +684,9 @@ fn test_float() {
     // assert_eq!(parse_float("3.14e-4"), Ok(3.14e-4));
 }
 
-fn parse_int(input: &str) -> Result<i64> {
-    match CUEParser::int_lit(CUEParser::parse(Rule::int_lit, input)?.single()?)? {
-        ast::BasicLit::Int(n) => Ok(n),
-        _ => unreachable!(),
-    }
-}
-
 #[test]
 fn test_int() {
+    let parse_int = |i| parse_single!(int_lit, i);
     assert_eq!(parse_int("1"), Ok(1));
     assert_eq!(parse_int("0"), Ok(0));
     assert_eq!(parse_int("100_000"), Ok(100_000));
@@ -710,14 +696,9 @@ fn test_int() {
     assert_eq!(parse_int("3Ki"), Ok(3 * 1024));
 }
 
-fn parse_str(input: &str) -> Result<ast::Interpolation> {
-    let parsed = CUEParser::parse(Rule::String, input)?.single()?;
-    // println!("{:#?}", parsed);
-    CUEParser::String(parsed)
-}
-
 #[test]
 fn test_strings() {
+    let parse_str = |i| parse_single!(String, i);
     // println!(
     //     "{:#?}",
     //     CUEParser::String(
@@ -774,20 +755,34 @@ fn test_strings() {
     );
 }
 
-fn parse_struct(input: &str) -> Result<ast::StructLit> {
-    return CUEParser::StructLit(CUEParser::parse(Rule::StructLit, input)?.single()?);
+#[test]
+fn test_label() {
+    assert_eq!(parse_single!(Label, "identifier"), Ok(ast::Label::Ident(ast::Ident { name: "identifier" })));
+    assert_eq!(parse_single!(Label, "\"quoted\""), Ok(ast::Label::Basic(parse_single!(String, "\"quoted\"").unwrap())));
+    assert_eq!(
+        parse_single!(Label, "(parenthesis)"),
+        Ok(ast::Label::Paren(ast::Expr::Ident(ast::Ident {
+            name: "parenthesis"
+        })))
+    );
+    assert_eq!(
+        parse_single!(Label, "[brackets=string]"), 
+        Ok(ast::Label::Bracket(ast::Expr::Alias(Box::new(ast::Alias {
+            ident: ast::Ident { name: "brackets" },
+            expr: ast::Expr::Ident(ast::Ident { name: "string" })
+        })))));
 }
-
-fn parse_basic_lit_expr(input: &str) -> Result<ast::Expr> {
-    return Ok(ast::Expr::BasicLit(CUEParser::BasicLit(
-        CUEParser::parse(Rule::BasicLit, input)?.single()?,
-    )?));
-}
-
 #[test]
 fn test_struct() {
+    let field = |label, value| ast::Declaration::Field(ast::Field {
+        attributes: vec![],
+        label,
+        value,
+    });
+
     assert_eq!(
-        parse_struct(
+        parse_single!(
+            StructLit,
             r#"{
     identifier: 0,
     "quoted": 1,
@@ -797,47 +792,43 @@ fn test_struct() {
         ),
         Ok(ast::StructLit {
             elements: vec![
-                ast::Declaration::Field(ast::Field {
-                    attributes: vec![],
-                    label: ast::Label::Ident(ast::Ident { name: "identifier" }),
-                    value: parse_basic_lit_expr("0").unwrap()
-                }),
-                ast::Declaration::Field(ast::Field {
-                    attributes: vec![],
-                    label: ast::Label::Basic(parse_str("\"quoted\"").unwrap()),
-                    value: parse_basic_lit_expr("1").unwrap(),
-                }),
-                ast::Declaration::Field(ast::Field {
-                    attributes: vec![],
-                    label: ast::Label::Paren(ast::Expr::Ident(ast::Ident {
-                        name: "parenthesis"
-                    })),
-                    value: parse_basic_lit_expr("2").unwrap(),
-                }),
-                ast::Declaration::Field(ast::Field {
-                    attributes: vec![],
-                    label: ast::Label::Bracket(ast::Expr::Alias(Box::new(ast::Alias {
-                        ident: ast::Ident { name: "brackets" },
-                        expr: ast::Expr::Ident(ast::Ident { name: "string" })
-                    }))),
-                    value: parse_basic_lit_expr("3").unwrap(),
-                }),
+                field(
+                    parse_single!(Label, "identifier").unwrap(),
+                    parse_single!(Expression, "0").unwrap()
+                ),
+                field(
+                    parse_single!(Label, "\"quoted\"").unwrap(),
+                    parse_single!(Expression, "1").unwrap(),
+                ),
+                field(
+                    parse_single!(Label, "(parenthesis)").unwrap(),
+                    parse_single!(Expression, "2").unwrap(),
+                ),
+                field(
+                    parse_single!(Label, "[brackets=string]").unwrap(),
+                    parse_single!(Expression, "3").unwrap(),
+                ),
             ]
         })
     );
 }
 
-fn parse_expr(input: &str) -> Result<ast::Expr> {
-    // let parsed: Option<_> = CUEParser::parse(Rule::Expression, input);
-    CUEParser::Expression(CUEParser::parse(Rule::Expression, input)?.single()?)
-}
-
 #[test]
 fn test_expr() {
-    // let e  = parse_single!(BasicLit, "1");
-    assert_eq!(parse_expr("1 + 1"), Ok(ast::Expr::BinaryExpr {
-        lhs: Box::new(parse_basic_lit_expr("1").unwrap()),
+    assert_eq!(parse_single!(Expression, "1"), Ok(ast::Expr::BasicLit(parse_single!(BasicLit, "1").unwrap())));
+    assert_eq!(parse_single!(Expression, "1 + 1"), Ok(ast::Expr::BinaryExpr {
+        lhs: Box::new(parse_single!(Expression ,"1").unwrap()),
         op: ast::Operator::Add,
-        rhs: Box::new(parse_basic_lit_expr("1").unwrap()),
+        rhs: Box::new(parse_single!(Expression ,"1").unwrap()),
+    }));
+    assert_eq!(parse_single!(Expression, "1 + 2 * 3"), Ok(ast::Expr::BinaryExpr {
+        lhs: Box::new(parse_single!(Expression ,"1").unwrap()),
+        op: ast::Operator::Add,
+        rhs: Box::new(parse_single!(Expression ,"2 * 3").unwrap()),
+    }));
+    assert_eq!(parse_single!(Expression, "1 * 2 + 3"), Ok(ast::Expr::BinaryExpr {
+        lhs: Box::new(parse_single!(Expression ,"1 * 2").unwrap()),
+        op: ast::Operator::Add,
+        rhs: Box::new(parse_single!(Expression ,"3").unwrap()),
     }));
 }
