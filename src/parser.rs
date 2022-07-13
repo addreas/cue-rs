@@ -1,8 +1,8 @@
 use std::vec;
 
-use pest::prec_climber::{PrecClimber,Operator,Assoc};
+use pest::{prec_climber::{PrecClimber,Operator,Assoc}, iterators::Pair};
 
-use crate::ast::{self};
+use crate::ast;
 use pest_consume::{match_nodes, Error, Parser};
 
 #[derive(Parser)]
@@ -25,6 +25,14 @@ lazy_static::lazy_static! {
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
+
+macro_rules! parse_single {
+    ($rule:ident, $input:expr) =>  {
+        CUEParser::parse(Rule::$rule, $input)
+            .and_then(|r| r.single())
+            .and_then(|r| CUEParser::$rule(r))
+    };
+}
 
 fn interpolation_elements(input: Node) -> Result<Vec<ast::Expr>> {
     let mut current_str = String::new();
@@ -464,14 +472,24 @@ impl CUEParser {
         }))
     }
     
-    #[prec_climb(UnaryExpr, PRECCLIMBER)]
-    fn Expression<'a>(lhs: ast::Expr<'a>, o: Node<'a>, rhs: ast::Expr<'a>) -> Result<ast::Expr<'a>> {
-        let op = CUEParser::binary_op(o)?;
-        Ok(ast::Expr::BinaryExpr {
-            lhs: Box::new(lhs),
-            op,
-            rhs: Box::new(rhs)
-        })
+    fn Expression(input: Node) -> Result<ast::Expr> {
+        let primary = |p| {
+            // assert!(p.clone().as_rule() == Rule::UnaryExpr);
+            println!("primary: {:?}", p);
+            CUEParser::UnaryExpr(Node::new(p))
+        };
+        let infix = |lhs, op, rhs| {
+            println!("infix: {:?} {:?} {:?}", lhs, op, rhs);
+            Ok(ast::Expr::BinaryExpr {
+                lhs: Box::new(lhs?),
+                op: CUEParser::binary_op(Node::new(op)).expect("should be like this"),
+                rhs: Box::new(rhs?)
+            })
+        };
+            
+        println!("pre prec climb: {:?}", input.clone());
+        
+        PRECCLIMBER.climb(input.into_children().into_pairs(), primary, infix)
     }
     fn rel_op(input: Node) -> Result<ast::Operator> {
         match input.as_str() {
@@ -504,15 +522,15 @@ impl CUEParser {
             Rule::rel_op => CUEParser::rel_op(input),
             Rule::add_op => CUEParser::add_op(input),
             Rule::mul_op => CUEParser::mul_op(input),
-            Rule::binary_op => match input.as_str() {
-                "|" => Ok(ast::Operator::Or),
-                "&" => Ok(ast::Operator::And),
-                "||" => Ok(ast::Operator::LogicOr),
-                "&&" => Ok(ast::Operator::LogicAnd),
-                "==" => Ok(ast::Operator::Equal),
-                x => unreachable!("binary_op {}", x),
+            Rule::binary_op => match input.into_children().single()?.as_rule() {
+                Rule::disjunct_op => Ok(ast::Operator::Disjunct),
+                Rule::conjuct_op => Ok(ast::Operator::Conjunct),
+                Rule::or_op => Ok(ast::Operator::Or),
+                Rule::and_op => Ok(ast::Operator::And),
+                Rule::equal_op => Ok(ast::Operator::Equal),
+                x => panic!("binary_op {:?}", x),
             },
-            x => unreachable!("binary_op {:?}", x),
+            x => panic!("binary_op {:?}", x),
         }
     }
     fn unary_op(input: Node) -> Result<ast::Operator> {
@@ -807,4 +825,19 @@ fn test_struct() {
             ]
         })
     );
+}
+
+fn parse_expr(input: &str) -> Result<ast::Expr> {
+    // let parsed: Option<_> = CUEParser::parse(Rule::Expression, input);
+    CUEParser::Expression(CUEParser::parse(Rule::Expression, input)?.single()?)
+}
+
+#[test]
+fn test_expr() {
+    // let e  = parse_single!(BasicLit, "1");
+    assert_eq!(parse_expr("1 + 1"), Ok(ast::Expr::BinaryExpr {
+        lhs: Box::new(parse_basic_lit_expr("1").unwrap()),
+        op: ast::Operator::Add,
+        rhs: Box::new(parse_basic_lit_expr("1").unwrap()),
+    }));
 }

@@ -6,18 +6,18 @@ pub enum Operator {
     Divide,   // /
     Power,    // ^
 
-    And, // &
-    Or,  // |
+    Conjunct, // &
+    Disjunct, // |
 
-    LogicAnd, // &&
-    LogicOr,  // ||
+    And, // &&
+    Or,  // ||
 
     Bind,    // =
     Equal,   // ==
     Less,    // <
     Greater, // >
     Not,     // !
-    Arror,   // <-
+    Arrow,   // <-
 
     NotEqual,     // !=
     LessEqual,    // <=
