@@ -1,11 +1,27 @@
 use std::vec;
 
+use pest::prec_climber::{PrecClimber,Operator,Assoc};
+
 use crate::ast::{self, new_str};
 use pest_consume::{match_nodes, Error, Parser};
 
 #[derive(Parser)]
 #[grammar = "cue.pest"]
 pub struct CUEParser;
+
+lazy_static::lazy_static! {
+    static ref PRECCLIMBER: PrecClimber<Rule> = PrecClimber::new(
+        vec![
+            Operator::new(Rule::disjunct_op, Assoc::Left),
+            Operator::new(Rule::conjuct_op, Assoc::Left),
+            Operator::new(Rule::or_op, Assoc::Left),
+            Operator::new(Rule::and_op, Assoc::Left),
+            Operator::new(Rule::rel_op, Assoc::Left) | Operator::new(Rule::equal_op, Assoc::Left),
+            Operator::new(Rule::add_op, Assoc::Left),
+            Operator::new(Rule::mul_op, Assoc::Left),
+        ]
+    );
+}
 
 type Result<T> = std::result::Result<T, Error<Rule>>;
 type Node<'i> = pest_consume::Node<'i, Rule, ()>;
@@ -85,7 +101,7 @@ fn parse_digits_radix(input: Node, radix: u32) -> Result<char> {
 }
 // This is the other half of the parser, using pest_consume.
 #[pest_consume::parser]
-#[allow(dead_code)]
+#[allow(dead_code, non_snake_case)]
 impl CUEParser {
     fn identifier(input: Node) -> Result<ast::Ident> {
         Ok(ast::Ident {
@@ -455,14 +471,15 @@ impl CUEParser {
             child: Box::new(child)
         }))
     }
-    fn Expression(input: Node) -> Result<ast::Expr> {
-        Ok(match_nodes!(input.into_children();
-        [UnaryExpr(e)] => e,
-        [UnaryExpr(lhs), binary_op(op), Expression(rhs)] => ast::Expr::BinaryExpr {
+    
+    #[prec_climb(UnaryExpr, PRECCLIMBER)]
+    fn Expression<'a>(lhs: ast::Expr<'a>, o: Node<'a>, rhs: ast::Expr<'a>) -> Result<ast::Expr<'a>> {
+        let op = CUEParser::binary_op(o)?;
+        Ok(ast::Expr::BinaryExpr {
             lhs: Box::new(lhs),
             op,
             rhs: Box::new(rhs)
-        }))
+        })
     }
     fn rel_op(input: Node) -> Result<ast::Operator> {
         match input.as_str() {

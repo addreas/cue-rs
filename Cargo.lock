@@ -40,6 +40,7 @@ name = "cue-rs"
 version = "0.1.0"
 dependencies = [
  "ebnf",
+ "lazy_static",
  "oak",
  "oak_runtime",
  "peg",
@@ -90,6 +91,12 @@ checksum = "b8e7479fa1ef38eb49fb6a42c426be515df2d063f06cb8efd3e50af073dbc26c"
 dependencies = [
  "utf8-width",
 ]
+
+[[package]]
+name = "lazy_static"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "maplit"

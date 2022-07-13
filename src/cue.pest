@@ -115,14 +115,19 @@ PrimaryExpr = { Operand ~ (Selector | Index | Slice | Arguments )* }
 
 UnaryExpr  = { PrimaryExpr | ( unary_op ~ UnaryExpr ) }
 // Expression = { UnaryExpr | ( Expression ~ binary_op ~ Expression ) }
-Expression = { UnaryExpr ~ (binary_op ~ Expression)? }
+Expression = { UnaryExpr ~ (binary_op ~ UnaryExpr)* }
 
 
-binary_op  = { "|" | "&" | "||" | "&&" | "==" | rel_op | add_op | mul_op  }
-rel_op     = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
-add_op     = { "+" | "-" }
-mul_op     = { "*" | "/" }
-unary_op   = { "!" | "*" | rel_op | add_op }
+binary_op   = { disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op  }
+disjunct_op = { "|" }
+conjuct_op  = { "&" }
+or_op       = { "||" }
+and_op      = { "&&" }
+equal_op    = { "==" }
+rel_op      = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
+add_op      = { "+" | "-" }
+mul_op      = { "*" | "/" }
+unary_op    = { "!" | "*" | rel_op | add_op }
 
 Comprehension = { Clauses ~ StructLit }
 
