@@ -1,6 +1,7 @@
 use std::vec;
 
 use pest::{prec_climber::{PrecClimber,Operator,Assoc}};
+use pretty_assertions::assert_eq;
 
 use crate::ast;
 use pest_consume::{match_nodes, Error, Parser};
@@ -329,20 +330,25 @@ impl CUEParser {
     }
     fn Field(input: Node) -> Result<ast::Field> {
         match_nodes!(input.into_children();
-        [Labels(ls), AliasExpr(value), attribute(attributes)..] => {
-            let mut lss = ls.clone();
-            let mut lsi = lss.iter_mut();
+        [Labels(mut ls), AliasExpr(value), attribute(attributes)..] => {
+            let mut lsi = ls.iter_mut();
             let init = ast::Field {
                 label: lsi.next().expect("nonempty list").clone(),
                 value: value,
-                attributes: attributes.collect(),
+                attributes: {
+                    let collected: Vec<_> = attributes.collect();
+                    match collected.len() {
+                        0 => None,
+                        _ => Some(collected)
+                    }
+                },
             };
             return Ok(lsi.rfold(init, |acc, label| ast::Field {
                 label: label.clone(),
                 value: ast::Expr::Struct(ast::StructLit {
                     elements: vec![ast::Declaration::Field(acc)],
                 }),
-                attributes: vec![],
+                attributes: None,
             }));
         })
     }
@@ -613,7 +619,7 @@ impl CUEParser {
             }))
     }
     fn ImportLocation(input: Node) -> Result<ast::BasicLit> {
-        Ok(ast::BasicLit::Str(input.as_str()))
+        Ok(ast::BasicLit::String(input.as_str().to_string()))
     }
     fn ImportPath(input: Node) -> Result<(ast::BasicLit, Option<ast::Ident>)> {
         Ok(match_nodes!(input.into_children();
@@ -775,7 +781,7 @@ fn test_label() {
 #[test]
 fn test_struct() {
     let field = |label, value| ast::Declaration::Field(ast::Field {
-        attributes: vec![],
+        attributes: None,
         label,
         value,
     });

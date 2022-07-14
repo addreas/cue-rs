@@ -48,6 +48,12 @@ pub struct Ident<'a> {
     // node: Node,
 }
 
+impl<'a> Ident<'a> {
+    pub fn new(name: &'a str) -> Self {
+        Self { name }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Ellipsis<'a> {
     pub inner: Expr<'a>,
@@ -61,7 +67,7 @@ pub enum BasicLit<'a> {
     Int(i64),
     Float(f64),
     String(String),
-    Str(&'a str),
+    Bytes(&'a str),
     // Duration,
 }
 
@@ -102,7 +108,7 @@ pub struct Alias<'a> {
 pub struct Field<'a> {
     pub label: Label<'a>,
     pub value: Expr<'a>,
-    pub attributes: Vec<Attribute<'a>>,
+    pub attributes: Option<Vec<Attribute<'a>>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -142,8 +148,30 @@ pub enum Label<'a> {
     Bracket(Expr<'a>),
 }
 
+impl<'a> Label<'a> {
+    pub fn ident(x: Ident<'a>) -> Self {
+        Self::Ident(x)
+    }
+    pub fn alias(ident: Ident<'a>, expr: Expr<'a>) -> Self {
+        Self::Alias(Alias { ident, expr })
+    }
+    pub fn basic(elements: Vec<Expr<'a>>) -> Self {
+        Self::Basic(Interpolation {
+            is_bytes: false,
+            elements,
+        })
+    }
+    pub fn paren(x: Expr<'a>) -> Self {
+        Self::Paren(x)
+    }
+    pub fn bracket(x: Expr<'a>) -> Self {
+        Self::Bracket(x)
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Declaration<'a> {
+    Bad,
     CommentGroup(CommentGroup<'a>),
     Attribute(Attribute<'a>),
     Field(Field<'a>),
@@ -151,16 +179,75 @@ pub enum Declaration<'a> {
     Comprehension(Comprehension<'a>),
     Ellipsis(Ellipsis<'a>),
     LetClause(LetClause<'a>),
-    BadDecl,
     ImportDecl(Vec<ImportSpec<'a>>),
     Embedding(Expr<'a>),
 }
 
+impl<'a> Declaration<'a> {
+    pub fn bad() -> Self {
+        Self::Bad
+    }
+    pub fn comment_group(cg: CommentGroup<'a>) -> Self {
+        Self::CommentGroup(cg)
+    }
+    pub fn attribute(text: &'a str) -> Self {
+        Self::Attribute(Attribute { text })
+    }
+    pub fn field(label: Label<'a>, value: Expr<'a>) -> Self {
+        Self::Field(Field {
+            label,
+            value,
+            attributes: None,
+        })
+    }
+    pub fn alias(ident: Ident<'a>, expr: Expr<'a>) -> Self {
+        Self::Alias(Alias { ident, expr })
+    }
+    pub fn comprehension(clauses: Vec<Clause<'a>>, expr: Expr<'a>) -> Self {
+        Self::Comprehension(Comprehension { clauses, expr })
+    }
+    pub fn ellipsis(inner: Expr<'a>) -> Self {
+        Self::Ellipsis(Ellipsis { inner })
+    }
+    pub fn let_clause(alias: Ident<'a>, value: Expr<'a>) -> Self {
+        Self::LetClause(LetClause { alias, value })
+    }
+    pub fn import_decl(x: Vec<ImportSpec<'a>>) -> Self {
+        Self::ImportDecl(x)
+    }
+    pub fn embedding(x: Expr<'a>) -> Self {
+        Self::Embedding(x)
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Clause<'a> {
+    If(Expr<'a>),
+    For {
+        key: Option<Ident<'a>>,
+        value: Ident<'a>,
+        source: Expr<'a>,
+    },
+    Let(LetClause<'a>),
+}
+
+impl<'a> Clause<'a> {
+    pub fn if_clause(e: Expr<'a>) -> Self {
+        Self::If(e)
+    }
+    pub fn for_clause(key: Option<Ident<'a>>, value: Ident<'a>, source: Expr<'a>) -> Self {
+        Self::For { key, value, source }
+    }
+    pub fn let_clause(alias: Ident<'a>, value: Expr<'a>) -> Self {
+        Self::Let(LetClause { alias, value })
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expr<'a> {
+    Bad,
     Alias(Box<Alias<'a>>),
     Comprehension(Box<Comprehension<'a>>),
-    Bad,
     Ident(Ident<'a>),
     QualifiedIdent(Ident<'a>, Ident<'a>),
     BasicLit(BasicLit<'a>),
@@ -199,126 +286,59 @@ pub enum Expr<'a> {
     },
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Clause<'a> {
-    If(Expr<'a>),
-    For {
-        key: Option<Ident<'a>>,
-        value: Ident<'a>,
-        source: Expr<'a>,
-    },
-    Let(LetClause<'a>),
+impl<'a> Expr<'a> {
+    pub fn string(x: String) -> Self {
+        Self::BasicLit(BasicLit::String(x))
+    }
+    pub fn string_interpolation(elements: Vec<Expr<'a>>) -> Self {
+        Self::Interpolation(Interpolation {
+            is_bytes: false,
+            elements,
+        })
+    }
+    pub fn bytes(x: &'a str) -> Self {
+        Self::BasicLit(BasicLit::Bytes(x))
+    }
+    pub fn bytes_interpolation(elements: Vec<Expr<'a>>) -> Self {
+        Self::Interpolation(Interpolation {
+            is_bytes: true,
+            elements,
+        })
+    }
+    pub fn int(x: i64) -> Self {
+        Self::BasicLit(BasicLit::Int(x))
+    }
+    pub fn bool(x: bool) -> Self {
+        Self::BasicLit(BasicLit::Bool(x))
+    }
+    pub fn null() -> Self {
+        Self::BasicLit(BasicLit::Null)
+    }
+    pub fn bottom() -> Self {
+        Self::BasicLit(BasicLit::Bottom)
+    }
+    pub fn alias(ident: Ident<'a>, expr: Expr<'a>) -> Self {
+        Self::Alias(Box::new(Alias { ident, expr }))
+    }
+    pub fn comprehension(clauses: Vec<Clause<'a>>, expr: Expr<'a>) -> Self {
+        Self::Comprehension(Box::new(Comprehension { clauses, expr }))
+    }
+    pub fn ident(name: &'a str) -> Self {
+        Self::Ident(Ident { name })
+    }
+    pub fn qualified_ident(package: Ident<'a>, ident: Ident<'a>) -> Self {
+        Self::QualifiedIdent(package, ident)
+    }
+    pub fn struct_lit(elements: Vec<Declaration<'a>>) -> Self {
+        Self::Struct(StructLit { elements })
+    }
+    pub fn list(elements: Vec<Expr<'a>>) -> Self {
+        Self::List(ListLit { elements })
+    }
+    pub fn ellipsis(inner: Expr<'a>) -> Self {
+        Self::Ellipsis(Box::new(Ellipsis { inner }))
+    }
 }
-
-// pub fn parse(name: &str, source: &str) -> std::result::Result<File, pest::error::Error<Rule>> {
-//     let pairs: pest::iterators::Pairs<Rule> = CUEParser::parse(Rule::SourceFile, source)?;
-
-//     let mut attributes = vec![];
-//     let mut package: Option<String> = None;
-//     let mut imports = vec![];
-//     let mut declarations = vec![];
-//     let unresolved = vec![];
-
-//     for pair in pairs {
-//         match pair.as_rule() {
-//             Rule::attribute => attributes.push(Attribute {
-//                 text: "".to_string(),
-//             }),
-//             Rule::PackageClause => package = Some(pair.into_inner().next().unwrap().to_string()),
-//             Rule::ImportDecl => imports.push(ImportSpec {
-//                 name: Ident {
-//                     name: "".to_string(),
-//                 },
-//                 path: BasicLit {
-//                     kind: BasicLitType::String,
-//                     value: "encoding/hex".to_string(),
-//                 },
-//             }),
-//             Rule::Declaration => declarations.push(Declaration::BadDecl),
-//             _ => unreachable!(),
-//         }
-//     }
-//     Ok(File {
-//         name: String::from(name),
-//         package,
-//         declarations,
-//         imports,
-//         unresolved,
-//     })
-// }
-
-// fn build_ast_from_expr(pair: pest::iterators::Pair<Rule>) -> Expr {
-//     match pair.as_rule() {
-//         Rule::Expression => build_ast_from_expr(pair.into_inner().next().unwrap()),
-//         Rule::UnaryExpr => {
-//             let mut pair = pair.into_inner();
-//             let op = pair.next().unwrap();
-//             let child = pair.next().unwrap();
-//             let child = build_ast_from_term(child);
-//             parse_unary_expr(op, child)
-//         }
-//         Rule::BinaryExpr => {
-//             let mut pair = pair.into_inner();
-//             let lhspair = pair.next().unwrap();
-//             let mut lhs = build_ast_from_term(lhspair);
-//             let mut op = pair.next().unwrap();
-//             let rhspair = pair.next().unwrap();
-//             let mut rhs = build_ast_from_term(rhspair);
-//             let mut retval = parse_binary_expr(op, lhs, rhs);
-//             loop {
-//                 let pair_buf = pair.next();
-//                 if pair_buf != None {
-//                     op = pair_buf.unwrap();
-//                     lhs = retval;
-//                     rhs = build_ast_from_term(pair.next().unwrap());
-//                     retval = parse_binary_expr(op, lhs, rhs);
-//                 } else {
-//                     return retval;
-//                 }
-//             }
-//         }
-//         unknown => panic!("Unknown expr: {:?}", unknown),
-//     }
-// }
-
-// fn build_ast_from_term(pair: pest::iterators::Pair<Rule>) -> Node {
-//     match pair.as_rule() {
-//         Rule::Int => {
-//             let istr = pair.as_str();
-//             let (sign, istr) = match &istr[..1] {
-//                 "-" => (-1, &istr[1..]),
-//                 _ => (1, istr),
-//             };
-//             let int: i32 = istr.parse().unwrap();
-//             Node::Int(sign * int)
-//         }
-//         Rule::Expr => build_ast_from_expr(pair),
-//         unknown => panic!("Unknown term: {:?}", unknown),
-//     }
-// }
-
-// fn parse_unary_expr(pair: pest::iterators::Pair<Rule>, child: Node) -> Node {
-//     Node::UnaryExpr {
-//         op: match pair.as_str() {
-//             "+" => Operator::Add,
-//             "-" => Operator::Subtract,
-//             _ => unreachable!(),
-//         },
-//         child: Box::new(child),
-//     }
-// }
-
-// fn parse_binary_expr(pair: pest::iterators::Pair<Rule>, lhs: Node, rhs: Node) -> Node {
-//     Node::BinaryExpr {
-//         op: match pair.as_str() {
-//             "+" => Operator::Add,
-//             "-" => Operator::Subtract,
-//             _ => unreachable!(),
-//         },
-//         lhs: Box::new(lhs),
-//         rhs: Box::new(rhs),
-//     }
-// }
 
 pub fn new_str<'a>(s: String) -> Expr<'a> {
     Expr::BasicLit(BasicLit::String(s))
