@@ -13,54 +13,54 @@ use crate::ast;
 pub struct StructLit {
     node: Box<dyn ast::Node>,
 
-    Decls: Vec<Box<dyn Decl>>,
-    Fields: Vec<FieldInfo>,
-    Dynamic: Vec<Box<DynamicField>>,
-    Bulk: Vec<Box<BulkOptionalField>>,
-    Additional: Vec<Box<Ellipsis>>,
-    HasEmbed: bool,
-    IsOpen: bool,
+    decls: Vec<Box<dyn Decl>>,
+    fields: Vec<FieldInfo>,
+    dynamic: Vec<Box<DynamicField>>,
+    bulk: Vec<Box<BulkOptionalField>>,
+    additional: Vec<Box<Ellipsis>>,
+    has_embed: bool,
+    is_open: bool,
     initialized: bool,
     types: OptionalType,
 }
 pub struct FieldInfo {
-    Label: Feature,
-    Optional: Box<dyn Node>,
+    label: Feature,
+    optional: Box<dyn Node>,
 }
 pub struct Field {
     node: Box<dyn ast::Node>,
 
-    Label: Feature,
-    Value: Box<dyn Expr>,
+    label: Feature,
+    value: Box<dyn Expr>,
 }
 pub struct OptionalField {
     node: Box<dyn ast::Node>,
 
-    Label: Feature,
-    Value: Box<dyn Expr>,
+    label: Feature,
+    value: Box<dyn Expr>,
 }
 pub struct BulkOptionalField {
     node: Box<dyn ast::Node>,
 
-    Filter: Box<dyn Expr>,
-    Value: Box<dyn Expr>,
-    Label: Feature,
+    filter: Box<dyn Expr>,
+    value: Box<dyn Expr>,
+    label: Feature,
 }
 pub struct Ellipsis {
     node: Box<dyn ast::Node>,
 
-    Value: Box<dyn Expr>,
+    value: Box<dyn Expr>,
 }
 pub struct DynamicField {
     node: Box<dyn ast::Node>,
 
-    Key: Box<dyn Expr>,
-    Value: Box<dyn Expr>,
+    key: Box<dyn Expr>,
+    value: Box<dyn Expr>,
 }
 pub struct ListLit {
     node: Box<dyn ast::Node>,
 
-    Elems: Vec<Box<dyn Elem>>,
+    elems: Vec<Box<dyn Elem>>,
     info: Box<StructLit>,
 }
 pub struct Null {
@@ -124,111 +124,111 @@ pub struct NodeLink {
 pub struct FieldReference {
     node: Box<dyn ast::Node>,
 
-    UpCount: u32,
-    Label: Feature,
+    up_count: u32,
+    label: Feature,
 }
 pub struct ValueReference {
     node: Box<dyn ast::Node>,
 
-    UpCount: u32,
-    Label: Feature,
+    up_count: u32,
+    label: Feature,
 }
 pub struct LabelReference {
     node: Box<dyn ast::Node>,
 
-    UpCount: u32,
+    up_count: u32,
 }
 pub struct DynamicReference {
     node: Box<dyn ast::Node>,
 
-    UpCount: u32,
-    Label: Box<dyn Expr>,
+    up_count: u32,
+    label: Box<dyn Expr>,
 
-    Alias: Feature,
+    alias: Feature,
 }
 pub struct ImportReference {
     node: Box<dyn ast::Node>,
 
-    ImportPath: Feature,
-    Label: Feature,
+    import_path: Feature,
+    label: Feature,
 }
 pub struct LetReference {
     node: Box<dyn ast::Node>,
 
-    UpCount: u32,
-    Label: Feature,
-    X: Box<dyn Expr>,
+    up_count: u32,
+    label: Feature,
+    x: Box<dyn Expr>,
 }
 pub struct SelectorExpr {
     node: Box<dyn ast::Node>,
 
-    X: Box<dyn Expr>,
-    Sel: Feature,
+    x: Box<dyn Expr>,
+    sel: Feature,
 }
 pub struct IndexExpr {
     node: Box<dyn ast::Node>,
 
-    X: Box<dyn Expr>,
-    Index: Box<dyn Expr>,
+    x: Box<dyn Expr>,
+    index: Box<dyn Expr>,
 }
 pub struct SliceExpr {
     node: Box<dyn ast::Node>,
 
-    X: Box<dyn Expr>,
-    Lo: Box<dyn Expr>,
-    Hi: Box<dyn Expr>,
-    Stride: Box<dyn Expr>,
+    x: Box<dyn Expr>,
+    low: Box<dyn Expr>,
+    high: Box<dyn Expr>,
+    stride: Box<dyn Expr>,
 }
 pub struct Interpolation {
     node: Box<dyn ast::Node>,
-    K: Kind,
-    Parts: Vec<Box<dyn Expr>>,
+    k: Kind,
+    parts: Vec<Box<dyn Expr>>,
 }
 pub struct UnaryExpr {
     node: Box<dyn ast::Node>,
 
-    Op: Op,
-    X: Box<dyn Expr>,
+    op: Op,
+    x: Box<dyn Expr>,
 }
 pub struct BinaryExpr {
     node: Box<dyn ast::Node>,
 
-    Op: Op,
-    X: Box<dyn Expr>,
-    Y: Box<dyn Expr>,
+    op: Op,
+    x: Box<dyn Expr>,
+    y: Box<dyn Expr>,
 }
 pub struct CallExpr {
     node: Box<dyn ast::Node>,
 
-    Fun: Box<dyn Expr>,
-    Args: Vec<Box<dyn Expr>>,
+    fun: Box<dyn Expr>,
+    args: Vec<Box<dyn Expr>>,
 }
 pub struct Builtin {
     node: Box<dyn ast::Node>,
 
-    Params: Vec<Param>,
-    Result: Kind,
-    Func: Box<dyn Fn(Box<OpContext>, Vec<Box<dyn Value>>) -> Box<dyn Expr>>,
+    params: Vec<Param>,
+    result: Kind,
+    func: Box<dyn Fn(Box<OpContext>, Vec<Box<dyn Value>>) -> Box<dyn Expr>>,
 
-    PackageL: Feature,
-    Name: String,
+    package: Feature,
+    name: String,
 }
 pub struct Param {
-    Name: Feature,
-    Value: Box<dyn Value>,
+    name: Feature,
+    value: Box<dyn Value>,
 }
 pub struct BuiltinValidator {
     node: Box<dyn ast::Node>,
 
-    Builtin: Box<Builtin>,
-    Args: Vec<Box<dyn Value>>,
+    builtin: Box<Builtin>,
+    args: Vec<Box<dyn Value>>,
 }
 pub struct DisjunctionExpr {
     node: Box<dyn ast::Node>,
 
-    Values: Vec<Disjunct>,
+    values: Vec<Disjunct>,
 
-    HasDefaults: bool,
+    has_defaults: bool,
 }
 pub struct Disjunct {
     val: Box<dyn Expr>,
@@ -237,48 +237,48 @@ pub struct Disjunct {
 pub struct Conjunction {
     node: Box<dyn ast::Node>,
 
-    Values: Vec<Box<dyn Value>>,
+    values: Vec<Box<dyn Value>>,
 }
 pub struct Disjunction {
     node: Box<dyn ast::Node>,
 
-    Values: Vec<Box<Vertex>>,
+    values: Vec<Box<Vertex>>,
 
-    Errors: Box<Bottom>,
+    errors: Box<Bottom>,
 
     // NumDefaults indicates the number of default values.
-    NumDefaults: usize,
-    HasDefaults: bool,
+    num_defaults: usize,
+    has_defaults: bool,
 }
 pub struct Comprehension {
     node: Box<dyn ast::Node>,
 
-    Value: Box<dyn Node>,
+    value: Box<dyn Node>,
 
     // Only used for partial comprehensions.
     comp: Box<envComprehension>,
-    Nest: usize,
+    nest: usize,
 }
 pub struct ForClause {
     node: Box<dyn ast::Node>,
 
-    Key: Feature,
-    Value: Feature,
-    Src: Box<dyn Expr>,
-    Dst: Box<dyn Yielder>,
+    key: Feature,
+    value: Feature,
+    src: Box<dyn Expr>,
+    dst: Box<dyn Yielder>,
 }
 pub struct IfClause {
     node: Box<dyn ast::Node>,
 
-    Condition: Box<dyn Expr>,
-    Dst: Box<dyn Yielder>,
+    condition: Box<dyn Expr>,
+    dst: Box<dyn Yielder>,
 }
 pub struct LetClause {
     node: Box<dyn ast::Node>,
 
-    Label: Feature,
-    Expr: Box<dyn Expr>,
-    Dst: Box<dyn Yielder>,
+    label: Feature,
+    expr: Box<dyn Expr>,
+    dst: Box<dyn Yielder>,
 }
 pub struct ValueClause {
     struct_lit: StructLit,

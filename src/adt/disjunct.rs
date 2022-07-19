@@ -4,18 +4,18 @@ use super::{
     expr::{Disjunction, DisjunctionExpr},
 };
 
-pub enum defaultMode {
-    maybeDefault,
-    isDefault,
-    notDefault,
+pub enum DefaultMode {
+    MaybeDefault,
+    IsDefault,
+    NotDefault,
 }
 
-pub struct envDisjunct {
+pub struct EnvDisjunct {
     env: Box<Environment>,
-    cloneID: CloseInfo,
+    clone_id: CloseInfo,
     expr: Box<DisjunctionExpr>,
     value: Box<Disjunction>,
-    hasDefaults: bool,
-    parentDefaultUsed: bool,
-    childDefaultUsed: bool,
+    has_defaults: bool,
+    parent_default_used: bool,
+    child_default_used: bool,
 }

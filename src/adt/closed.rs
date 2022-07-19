@@ -3,8 +3,8 @@ use super::adt::Node;
 pub struct CloseStats {
     generation: usize,
 
-    requiredCount: usize,
-    acceptedCount: usize,
+    required_count: usize,
+    accepted_count: usize,
 
     accepted: bool,
 
@@ -18,7 +18,7 @@ pub struct CloseInfo {
 
     mode: closeNodeType,
 
-    noCheck: bool,
+    no_check: bool,
 
     root: SpanType,
     span: SpanType,
