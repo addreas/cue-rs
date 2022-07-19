@@ -1,4 +1,8 @@
-pub trait Node {}
+pub mod parser;
+
+pub trait Node {
+    fn source(&self) -> pest::Span;
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Operator {

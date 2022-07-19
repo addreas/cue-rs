@@ -2,7 +2,6 @@
 #![feature(iterator_try_collect)]
 pub mod adt;
 pub mod ast;
-pub mod parser;
 pub mod txtar;
 
 extern crate pest;
