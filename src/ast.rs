@@ -1,3 +1,5 @@
+pub trait Node {}
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Operator {
     Add,      // +
