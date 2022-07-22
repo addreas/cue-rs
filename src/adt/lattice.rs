@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 
 use super::op::Op;
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum ValueType<T: PartialEq> {
     Type,
     Constraint(Op, T),
@@ -34,7 +34,7 @@ impl<T: PartialEq> PartialOrd for ValueType<T> {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub struct Field<'a> {
     label: usize,
     optional: bool,
@@ -71,7 +71,7 @@ impl<'a> PartialOrd for Field<'a> {
     }
 }
 
-#[derive(PartialEq)]
+#[derive(Debug, PartialEq)]
 pub enum Value<'a> {
     Top,
 
@@ -89,10 +89,53 @@ pub enum Value<'a> {
 }
 
 fn compare_structs(lhs: &Vec<Field>, rhs: &Vec<Field>) -> Option<Ordering> {
+    let (long, short, reverse) = if lhs.len() > rhs.len() {
+        (lhs, rhs, true)
+    } else {
+        (rhs, lhs, false)
+    };
+
+    let result = short
+        .iter()
+        .inspect(|f| println!("cmp_struct field: {:?}", f))
+        .map(|f| {
+            long.iter()
+                .inspect(|ff| println!("cmp_struct matching f? {:?}", ff))
+                .find_map(|ff| f.partial_cmp(ff))
+                .inspect(|ff| println!("cmp_struct matched ord {:?}", ff))
+        })
+        .inspect(|ord| println!("cmp_struct ord: {:?}", ord))
+        .reduce(|acc, item| match (acc, item) {
+            (Some(Ordering::Greater), Some(Ordering::Greater)) => Some(Ordering::Greater),
+            (Some(a), Some(Ordering::Greater)) => Some(a),
+            (Some(a), Some(Ordering::Equal)) => Some(a),
+            _ => None,
+        })
+        .inspect(|ord| println!("cmp_struct final ord: {:?}\n", ord))
+        .unwrap_or(None)
+        .map(|ord| {
+            if lhs.len() != rhs.len() && ord.is_eq() {
+                Ordering::Greater
+            } else {
+                ord
+            }
+        });
+
+    if reverse {
+        return result.map(|r| r.reverse());
+    } else {
+        return result;
+    }
+}
+
+fn compare_lists(lhs: &Vec<&Value>, rhs: &Vec<&Value>) -> Option<Ordering> {
     lhs.iter()
-        .map(|f| rhs.iter().find_map(|ff| f.partial_cmp(ff)))
+        .zip(rhs.iter())
+        .map(|(l, r)| l.partial_cmp(r))
         .reduce(|acc, item| match (acc, item) {
             (Some(a), Some(b)) if a == b => Some(a),
+            (Some(Ordering::Equal), Some(a)) => Some(a),
+            (Some(a), Some(Ordering::Equal)) => Some(a),
             _ => None,
         })
         .unwrap_or(None)
@@ -112,16 +155,8 @@ impl<'a> PartialOrd for Value<'a> {
             (Value::Null, Value::Null) => Some(Ordering::Equal),
 
             (Value::Struct(lhs), Value::Struct(rhs)) => compare_structs(lhs, rhs),
+            (Value::List(lhs), Value::List(rhs)) => compare_lists(lhs, rhs),
 
-            (Value::List(lhs), Value::List(rhs)) => lhs
-                .iter()
-                .zip(rhs.iter())
-                .map(|(l, r)| l.partial_cmp(r))
-                .reduce(|acc, item| match (acc, item) {
-                    (Some(a), Some(b)) if a == b => Some(a),
-                    _ => None,
-                })
-                .unwrap_or(None), // is this enough?
             (Value::Bytes(lhs), Value::Bytes(rhs)) => lhs.partial_cmp(rhs),
             (Value::String(lhs), Value::String(rhs)) => lhs.partial_cmp(rhs),
             (Value::Float(lhs), Value::Float(rhs)) => lhs.partial_cmp(rhs),
@@ -155,7 +190,13 @@ fn test_lattice() {
     let bytes_value = &Value::Bytes(ValueType::concrete(1));
 
     let list_types = &Value::List(vec![bool_t, int_t, float_t, string_t, bytes_t]);
-    let list_constraints = &Value::List(vec![int_gt_5, float_gt_5, string_match, bytes_match]);
+    let list_constraints = &Value::List(vec![
+        bool_t,
+        int_gt_5,
+        float_gt_5,
+        string_match,
+        bytes_match,
+    ]);
     let list_values = &Value::List(vec![bool_true, int_5, float_5, string_value, bytes_value]);
     let list_mixed = &Value::List(vec![bool_t, int_5, float_gt_5, string_t, bytes_match]);
 
@@ -209,9 +250,9 @@ fn test_lattice() {
     assert!(Value::Top > *list_constraints);
     assert!(Value::Top > *list_values);
     assert!(Value::Top > *list_mixed);
-    // assert!(list_types > list_constraints);
-    // assert!(list_types > list_mixed);
-    // assert!(list_constraints > list_values);
+    assert!(list_types > list_constraints);
+    assert!(list_types > list_mixed);
+    assert!(list_constraints > list_values);
 
     assert!(Value::Top > *struct_a_int);
     assert!(Value::Top > *struct_ab_int);
@@ -220,12 +261,12 @@ fn test_lattice() {
     assert!(Value::Top > *struct_ab_5);
     assert!(Value::Top > *struct_b_5);
     assert!(struct_a_int > struct_a_5);
-    // assert!(struct_a_int > struct_ab_int);
-    // assert!(struct_b_int > struct_ab_int);
+    assert!(struct_a_int > struct_ab_int);
+    assert!(struct_b_int > struct_ab_int);
     assert!(struct_b_int > struct_b_5);
-    // assert!(struct_a_5 > struct_ab_5);
-    // assert!(struct_ab_int > struct_ab_5);
-    // assert!(struct_b_5 > struct_ab_5);
+    assert!(struct_a_5 > struct_ab_5);
+    assert!(struct_ab_int > struct_ab_5);
+    assert!(struct_b_5 > struct_ab_5);
 
     assert!(Value::Top > *struct_a_opt_int);
     assert!(Value::Top > *struct_a_opt_int_gt5);
@@ -274,10 +315,10 @@ fn test_lattice() {
     assert!(Value::Bottom < *list_constraints);
     assert!(Value::Bottom < *list_values);
     assert!(Value::Bottom < *list_mixed);
-    // assert!(list_values < list_constraints);
+    assert!(list_values < list_constraints);
     assert!(list_values < list_types);
-    // assert!(list_values < list_mixed);
-    // assert!(list_constraints < list_types);
+    assert!(list_values < list_mixed);
+    assert!(list_constraints < list_types);
 
     assert!(Value::Bottom < *struct_a_int);
     assert!(Value::Bottom < *struct_ab_int);
@@ -285,12 +326,12 @@ fn test_lattice() {
     assert!(Value::Bottom < *struct_a_5);
     assert!(Value::Bottom < *struct_ab_5);
     assert!(Value::Bottom < *struct_b_5);
-    // assert!(struct_ab_5 < struct_a_5);
-    // assert!(struct_ab_5 < struct_ab_int);
-    // assert!(struct_ab_5 < struct_b_5);
+    assert!(struct_ab_5 < struct_a_5);
+    assert!(struct_ab_5 < struct_ab_int);
+    assert!(struct_ab_5 < struct_b_5);
     assert!(struct_a_5 < struct_a_int);
-    // assert!(struct_ab_int < struct_a_int);
-    // assert!(struct_ab_int < struct_b_int);
+    assert!(struct_ab_int < struct_a_int);
+    assert!(struct_ab_int < struct_b_int);
     assert!(struct_b_5 < struct_b_int);
 
     assert!(Value::Bottom < *struct_a_opt_int);

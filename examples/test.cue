@@ -5,8 +5,10 @@ llll:  l[1:]
 lllll: l[:]
 
 s: 'Hello \127orld'
+ss: 'Hello Worlds'
 
-struct: {a: 1 b: 2}
+struct: {a: 1, b: 2}
+strutt: {b: 2, a: 1}
 
 
 i: [1 | "hello"]: "hello"
