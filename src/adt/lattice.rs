@@ -88,6 +88,15 @@ pub enum Value<'a> {
     Bottom,
 }
 
+fn combine_orderings(acc: Option<Ordering>, item: Option<Ordering>) -> Option<Ordering> {
+    match (acc, item) {
+        (Some(a), Some(b)) if a == b => Some(a),
+        (Some(Ordering::Equal), Some(a)) => Some(a),
+        (Some(a), Some(Ordering::Equal)) => Some(a),
+        _ => None,
+    }
+}
+
 fn compare_structs(lhs: &Vec<Field>, rhs: &Vec<Field>) -> Option<Ordering> {
     let (long, short, reverse) = if lhs.len() > rhs.len() {
         (lhs, rhs, true)
@@ -97,28 +106,12 @@ fn compare_structs(lhs: &Vec<Field>, rhs: &Vec<Field>) -> Option<Ordering> {
 
     let result = short
         .iter()
-        .inspect(|f| println!("cmp_struct field: {:?}", f))
-        .map(|f| {
-            long.iter()
-                .inspect(|ff| println!("cmp_struct matching f? {:?}", ff))
-                .find_map(|ff| f.partial_cmp(ff))
-                .inspect(|ff| println!("cmp_struct matched ord {:?}", ff))
-        })
-        .inspect(|ord| println!("cmp_struct ord: {:?}", ord))
-        .reduce(|acc, item| match (acc, item) {
-            (Some(Ordering::Greater), Some(Ordering::Greater)) => Some(Ordering::Greater),
-            (Some(a), Some(Ordering::Greater)) => Some(a),
-            (Some(a), Some(Ordering::Equal)) => Some(a),
-            _ => None,
-        })
-        .inspect(|ord| println!("cmp_struct final ord: {:?}\n", ord))
+        .map(|f| long.iter().find_map(|ff| f.partial_cmp(ff)))
+        .reduce(combine_orderings)
         .unwrap_or(None)
-        .map(|ord| {
-            if lhs.len() != rhs.len() && ord.is_eq() {
-                Ordering::Greater
-            } else {
-                ord
-            }
+        .map(|ord| match ord {
+            Ordering::Equal if lhs.len() != rhs.len() => Ordering::Greater,
+            _ => ord,
         });
 
     if reverse {
@@ -132,12 +125,7 @@ fn compare_lists(lhs: &Vec<&Value>, rhs: &Vec<&Value>) -> Option<Ordering> {
     lhs.iter()
         .zip(rhs.iter())
         .map(|(l, r)| l.partial_cmp(r))
-        .reduce(|acc, item| match (acc, item) {
-            (Some(a), Some(b)) if a == b => Some(a),
-            (Some(Ordering::Equal), Some(a)) => Some(a),
-            (Some(a), Some(Ordering::Equal)) => Some(a),
-            _ => None,
-        })
+        .reduce(combine_orderings)
         .unwrap_or(None)
 }
 
