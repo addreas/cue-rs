@@ -1,3 +1,4 @@
+#[derive(Debug, PartialEq)]
 pub enum Op {
     Noop,
 
@@ -33,4 +34,10 @@ pub enum Op {
     IntModulo,
 
     Interpolation,
+}
+
+impl PartialOrd for Op {
+    fn partial_cmp(&self, _: &Self) -> Option<std::cmp::Ordering> {
+        return Some(std::cmp::Ordering::Equal);
+    }
 }

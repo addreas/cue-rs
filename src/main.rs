@@ -1,5 +1,6 @@
 #![feature(iter_intersperse)]
 #![feature(iterator_try_collect)]
+#![feature(option_result_contains)]
 pub mod adt;
 pub mod ast;
 pub mod txtar;

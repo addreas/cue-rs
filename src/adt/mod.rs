@@ -9,4 +9,5 @@ pub mod eval;
 pub mod expr;
 pub mod feature;
 pub mod kind;
+pub mod lattice;
 pub mod op;
