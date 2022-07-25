@@ -10,4 +10,6 @@ pub mod expr;
 pub mod feature;
 pub mod kind;
 pub mod lattice;
+#[cfg(test)]
+pub mod lattice_test;
 pub mod op;
