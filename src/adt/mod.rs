@@ -1,5 +1,6 @@
 pub mod adt;
 pub mod closed;
+pub mod complicated_lattice;
 pub mod composite;
 pub mod comprehension;
 pub mod context;

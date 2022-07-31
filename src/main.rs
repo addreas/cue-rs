@@ -1,6 +1,8 @@
+#![feature(arc_unwrap_or_clone)]
 #![feature(iter_intersperse)]
 #![feature(iterator_try_collect)]
 #![feature(iterator_try_reduce)]
+#![feature(slice_group_by)]
 #![feature(option_result_contains)]
 #![feature(result_option_inspect)]
 pub mod adt;
