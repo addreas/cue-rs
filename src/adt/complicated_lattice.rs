@@ -32,6 +32,76 @@ pub enum BasicType {
 }
 
 impl Value {
+    pub fn disjunct_from_iter<I: IntoIterator<Item = Rc<Value>>>(iter: I) -> Self {
+        Self::Disjunct(Vec::from_iter(iter))
+    }
+    pub fn conjunct_from_iter<I: IntoIterator<Item = Rc<Value>>>(iter: I) -> Self {
+        Self::Conjunct(Vec::from_iter(iter))
+    }
+    pub fn struct_from_iter<I: IntoIterator<Item = Field>>(iter: I) -> Self {
+        Self::Struct(Vec::from_iter(iter))
+    }
+    pub fn list_from_iter<I: IntoIterator<Item = Rc<Value>>>(iter: I) -> Self {
+        Self::List(Vec::from_iter(iter))
+    }
+    pub fn reference(inner: Weak<Value>, path: Vec<BasicValue>) -> Self {
+        Self::Reference(inner, path)
+    }
+    pub fn basic_value(inner: BasicValue) -> Self {
+        Self::BasicValue(inner)
+    }
+    pub fn as_rc(self) -> Rc<Self> {
+        Rc::new(self)
+    }
+
+    pub fn disjunct_with(self: Rc<Self>, other: Rc<Value>) -> Rc<Self> {
+        match (&*self, &*other) {
+            (Self::Disjunct(lhs), Self::Disjunct(rhs)) => {
+                let parts = lhs.into_iter().chain(rhs.into_iter()).map(Rc::clone);
+                Self::disjunct_from_iter(parts).as_rc()
+            }
+            (Self::Disjunct(lhs), _) => {
+                let parts = lhs
+                    .into_iter()
+                    .chain(vec![&other].into_iter())
+                    .map(Rc::clone);
+                Self::disjunct_from_iter(parts).as_rc()
+            }
+            (_, Self::Disjunct(rhs)) => {
+                let parts = rhs
+                    .into_iter()
+                    .chain(vec![&self].into_iter())
+                    .map(Rc::clone);
+                Self::disjunct_from_iter(parts).as_rc()
+            }
+            _ => Self::Disjunct(vec![self, other]).as_rc(),
+        }
+    }
+
+    pub fn conjunct_with(self: Rc<Self>, other: Rc<Value>) -> Rc<Self> {
+        match (&*self, &*other) {
+            (Self::Conjunct(lhs), Self::Conjunct(rhs)) => {
+                let parts = lhs.into_iter().chain(rhs.into_iter()).map(Rc::clone);
+                Self::disjunct_from_iter(parts).as_rc()
+            }
+            (Self::Conjunct(lhs), _) => {
+                let parts = lhs
+                    .into_iter()
+                    .chain(vec![&other].into_iter())
+                    .map(Rc::clone);
+                Self::disjunct_from_iter(parts).as_rc()
+            }
+            (_, Self::Conjunct(rhs)) => {
+                let parts = rhs
+                    .into_iter()
+                    .chain(vec![&self].into_iter())
+                    .map(Rc::clone);
+                Self::disjunct_from_iter(parts).as_rc()
+            }
+            _ => Self::Conjunct(vec![self, other]).as_rc(),
+        }
+    }
+
     pub fn follow_reference(self: Rc<Self>, path: Vec<BasicValue>) -> Option<Rc<Value>> {
         let mut current_root = self;
         for segment in path.into_iter() {
@@ -63,6 +133,12 @@ impl Value {
     }
 }
 
+impl PartialEq for Value {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Field {
     label: BasicValue,
@@ -89,7 +165,7 @@ pub enum ValueType<T: PartialEq + Copy> {
 
 trait Lattice {
     // supremum, least upper bound, anti-unification
-    fn join(self, other: Self) -> Self;
+    fn join(self: Rc<Self>, other: Rc<Self>) -> Rc<Self>;
 
     // infimum, greatest lower bound, unification
     fn meet(self: Rc<Self>, other: Rc<Self>) -> Rc<Self>;
@@ -107,58 +183,74 @@ impl Lattice for Value {
             (Self::Reference(lhs_root, lhs_path), _) => lhs_root
                 .upgrade()
                 .and_then(|root| root.follow_reference(lhs_path.clone()))
-                .map_or_else(|| Rc::new(Self::Bottom), |lhs| lhs.meet(other)),
+                .map_or_else(|| Self::Bottom.as_rc(), |lhs| lhs.meet(other)),
 
-            (Self::Disjunct(items), _) => Rc::new(Self::Disjunct(
+            (Self::Disjunct(items), _) => Self::disjunct_from_iter(
                 items
                     .into_iter()
                     .map(|i| Rc::clone(i).meet(Rc::clone(&other)))
-                    .filter(|i| !i.is_bottom())
-                    .collect(),
-            )),
+                    .filter(|i| !i.is_bottom()),
+            )
+            .as_rc(),
             (Self::Conjunct(items), _) => items
                 .into_iter()
                 .fold(other, |acc, i| Rc::clone(i).meet(acc)),
 
             (Self::Struct(lhs), Self::Struct(rhs)) if lhs.len() <= rhs.len() => {
-                let lhs_default = || Rc::new(Self::Bottom); // lhs is closed
-
                 let met = rhs
                     .into_iter()
                     .map(|i| {
                         let new_value = Rc::clone(&i.value).meet(
                             lhs.iter()
                                 .find(|ii| i.label == ii.label)
-                                .map_or_else(lhs_default, |ii| Rc::clone(&ii.value)),
+                                .map_or_else(|| Self::Bottom.as_rc(), |ii| Rc::clone(&ii.value)),
                         );
                         i.with_value(new_value)
                     })
                     .collect::<Vec<_>>();
 
                 if met.iter().any(|i| i.value.is_bottom()) {
-                    Rc::new(Self::Bottom)
+                    Self::Bottom.as_rc()
                 } else {
-                    Rc::new(Self::Struct(met))
+                    Self::Struct(met).as_rc()
                 }
             }
-            (Self::List(lhs), Self::List(rhs)) => Rc::new(Self::List(
+            (Self::List(lhs), Self::List(rhs)) => Self::list_from_iter(
                 lhs.into_iter()
                     .zip(rhs.into_iter())
-                    .map(|(l, r)| Rc::clone(l).meet(Rc::clone(r)))
-                    .collect(),
-            )),
+                    .map(|(l, r)| Rc::clone(l).meet(Rc::clone(r))),
+            )
+            .as_rc(),
 
             (lhs, rhs @ Self::Struct(_)) => other.meet(self),
             (lhs, rhs @ Self::Reference(_, _)) => other.meet(self),
             (lhs, rhs @ Self::Disjunct(_)) => other.meet(self),
             (lhs, rhs @ Self::Conjunct(_)) => other.meet(self),
 
-            _ => Rc::new(Self::Bottom),
+            // TODO: basic value
+            _ => Self::Bottom.as_rc(),
         }
     }
 
-    fn join(self, other: Self) -> Self {
-        todo!()
+    fn join(self: Rc<Self>, other: Rc<Self>) -> Rc<Self> {
+        match (&*self, &*other) {
+            (a, b) if a == b => self,
+
+            (Self::Bottom, _) => other,
+            (_, Self::Bottom) => self,
+
+            (Self::Top, _) => self,
+            (_, Self::Top) => other,
+
+            (Self::Reference(root, path), _) => root
+                .upgrade()
+                .and_then(|r| r.follow_reference(path.clone()))
+                .map_or_else(|| Self::Bottom.as_rc(), |v| v.join(other)),
+            (_, _rhs @ Self::Reference(_, _)) => other.join(self),
+
+            // TODO: should this resolve recursively?
+            _ => self.disjunct_with(other),
+        }
     }
 }
 
