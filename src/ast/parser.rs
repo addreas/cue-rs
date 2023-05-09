@@ -34,7 +34,7 @@ type Node<'i> = pest_consume::Node<'i, Rule, ()>;
 impl CUEParser {
     fn identifier(input: Node) -> Result<ast::Ident> {
         Ok(ast::Ident {
-            name: input.as_str(),
+            name: input.as_str().to_string(),
         })
     }
     fn unicode_char(input: Node) -> Result<char> {
@@ -280,7 +280,7 @@ impl CUEParser {
     }
     fn attribute(input: Node) -> Result<ast::Attribute> {
         Ok(ast::Attribute {
-            text: input.as_str(),
+            text: input.as_str().to_string(),
         })
     }
     fn attr_tokens(input: Node) -> Result<()> {
@@ -291,10 +291,7 @@ impl CUEParser {
     }
     fn AliasExpr(input: Node) -> Result<ast::Expr> {
         Ok(match_nodes!(input.into_children();
-            [identifier(ident), Expression(expr)] => ast::Expr::Alias(Box::new(ast::Alias {
-                ident,
-                expr,
-            })),
+            [identifier(ident), Expression(expr)] => ast::Expr::alias(ident, expr),
             [Expression(expr)] => expr
         ))
     }
@@ -323,7 +320,7 @@ impl CUEParser {
         Ok(match_nodes!(input.into_children();
             [Literal(l)] => l,
             [OperandName(o)] => o,
-            [Expression(e)] => ast::Expr::Parens { inner: Box::new(e)}))
+            [Expression(e)] => ast::Expr::parens(e)))
     }
     fn BasicLit(input: Node) -> Result<ast::BasicLit> {
         match_nodes!(input.into_children();
@@ -368,28 +365,14 @@ impl CUEParser {
         [Operand(o), items] => {
             let mut current_expr = o;
             for item in items.into_children() {
-                let source = Box::new(current_expr);
                 current_expr = match item.as_rule() {
-                    Rule::Selector => ast::Expr::Selector {
-                        source,
-                        field: Box::new(CUEParser::Selector(item)?)
-                    },
-                    Rule::Index => ast::Expr::Index {
-                        source,
-                        index: Box::new(CUEParser::Index(item)?),
-                    },
+                    Rule::Selector => ast::Expr::selector(current_expr, CUEParser::Selector(item)?),
+                    Rule::Index => ast::Expr::index(current_expr, CUEParser::Index(item)?),
                     Rule::Slice => {
                         let (low, high) = CUEParser::Slice(item)?;
-                        ast::Expr::Slice {
-                            source,
-                            low: Box::new(low),
-                            high: Box::new(high),
-                        }
+                        ast::Expr::slice(current_expr, low, high)
                     },
-                    Rule::Arguments => ast::Expr::Call {
-                        source,
-                        args: CUEParser::Arguments(item)?
-                    },
+                    Rule::Arguments => ast::Expr::call(current_expr, CUEParser::Arguments(item)?),
                     x => unreachable!("unexpected primary expr rule {:?}", x)
                 }
             }
@@ -400,18 +383,15 @@ impl CUEParser {
     fn UnaryExpr(input: Node) -> Result<ast::Expr> {
         Ok(match_nodes!(input.into_children();
         [PrimaryExpr(p)] => p,
-        [unary_op(op), Expression(child)] => ast::Expr::UnaryExpr {
-            op,
-            child: Box::new(child)
-        }))
+        [unary_op(op), Expression(child)] => ast::Expr::unary_expr(op, child)))
     }
     fn Expression(input: Node) -> Result<ast::Expr> {
         let infix = |lhs, op, rhs| {
-            Ok(ast::Expr::BinaryExpr {
-                lhs: Box::new(lhs?),
-                op: binary_op(Node::new(op))?,
-                rhs: Box::new(rhs?),
-            })
+            Ok(ast::Expr::binary_expr(
+                lhs?,
+                binary_op(Node::new(op))?,
+                rhs?,
+            ))
         };
 
         PRECCLIMBER.climb(
@@ -537,11 +517,10 @@ impl CUEParser {
             [ImportLocation(path)] => (path, None),
             [ImportLocation(path), identifier(package)] => (path, Some(package))))
     }
-    fn SourceFile(input: Node) -> Result<ast::File> {
+    fn SourceFile(input: Node) -> Result<ast::SourceFile> {
         let children = input.into_children();
 
-        Ok(ast::File {
-            name: "",
+        Ok(ast::SourceFile {
             attributes: children
                 .clone()
                 .filter_map(|n| match n.as_rule() {
@@ -771,7 +750,9 @@ fn test_strings() {
 fn test_label() {
     assert_eq!(
         parse_single!(Label, "identifier"),
-        Ok(ast::Label::Ident(ast::Ident { name: "identifier" }))
+        Ok(ast::Label::Ident(ast::Ident {
+            name: "identifier".to_string()
+        }))
     );
     assert_eq!(
         parse_single!(Label, "\"quoted\""),
@@ -782,17 +763,15 @@ fn test_label() {
     assert_eq!(
         parse_single!(Label, "(parenthesis)"),
         Ok(ast::Label::Paren(ast::Expr::Ident(ast::Ident {
-            name: "parenthesis"
+            name: "parenthesis".to_string()
         })))
     );
     assert_eq!(
         parse_single!(Label, "[brackets=string]"),
-        Ok(ast::Label::Bracket(ast::Expr::Alias(Box::new(
-            ast::Alias {
-                ident: ast::Ident { name: "brackets" },
-                expr: ast::Expr::Ident(ast::Ident { name: "string" })
-            }
-        ))))
+        Ok(ast::Label::bracket(ast::Expr::alias(
+            ast::Ident::from("brackets"),
+            ast::Expr::ident("string".to_string())
+        ))),
     );
 }
 #[test]
@@ -846,26 +825,26 @@ fn test_expr() {
     );
     assert_eq!(
         parse_single!(Expression, "1 + 1"),
-        Ok(ast::Expr::BinaryExpr {
-            lhs: Box::new(parse_single!(Expression, "1").unwrap()),
-            op: ast::Operator::Add,
-            rhs: Box::new(parse_single!(Expression, "1").unwrap()),
-        })
+        Ok(ast::Expr::binary_expr(
+            parse_single!(Expression, "1").unwrap(),
+            ast::Operator::Add,
+            parse_single!(Expression, "1").unwrap()
+        ))
     );
     assert_eq!(
         parse_single!(Expression, "1 + 2 * 3"),
-        Ok(ast::Expr::BinaryExpr {
-            lhs: Box::new(parse_single!(Expression, "1").unwrap()),
-            op: ast::Operator::Add,
-            rhs: Box::new(parse_single!(Expression, "2 * 3").unwrap()),
-        })
+        Ok(ast::Expr::binary_expr(
+            parse_single!(Expression, "1").unwrap(),
+            ast::Operator::Add,
+            parse_single!(Expression, "2 * 3").unwrap(),
+        ))
     );
     assert_eq!(
         parse_single!(Expression, "1 * 2 + 3"),
-        Ok(ast::Expr::BinaryExpr {
-            lhs: Box::new(parse_single!(Expression, "1 * 2").unwrap()),
-            op: ast::Operator::Add,
-            rhs: Box::new(parse_single!(Expression, "3").unwrap()),
-        })
+        Ok(ast::Expr::binary_expr(
+            parse_single!(Expression, "1 * 2").unwrap(),
+            ast::Operator::Add,
+            parse_single!(Expression, "3").unwrap(),
+        ))
     );
 }

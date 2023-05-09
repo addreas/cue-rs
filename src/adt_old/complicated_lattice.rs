@@ -1,11 +1,29 @@
 use core::panic;
 use std::{
+    cell::RefCell,
     cmp::Ordering,
     fmt::Debug,
     rc::{Rc, Weak},
+    sync::RwLock,
+    vec, collections::{HashMap, hash_map::DefaultHasher}, hash::{Hash, Hasher},
 };
 
 use super::op::Op;
+
+pub struct Vertex {
+    parent: Box<Vertex>,
+
+    value: Value,
+}
+
+pub struct Struct {
+    parent: Box<Struct>,
+    closed: bool,
+
+    fields: Vec<Field>,
+}
+
+pub type ValueRef = Rc<RefCell<Value>>;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -16,6 +34,7 @@ pub enum Value {
 
     Struct(Vec<Field>),
     List(Vec<Rc<Value>>),
+
     // Func,
     Reference(Weak<Value>, Vec<BasicValue>),
 
@@ -31,11 +50,12 @@ fn test_value() {
     let string = Value::BasicValue(BasicValue::string_t()).as_rc();
     let intgt5 = Value::BasicValue(BasicValue::int_constraint(Op::GreaterThan, 5)).as_rc();
     let stringmatch = Value::BasicValue(BasicValue::string_constraint(Op::Match, "test.*")).as_rc();
+    let stringtest = Value::BasicValue(BasicValue::string("testtest")).as_rc();
 
     assert_eq!(*null.clone_rc().meet(int.clone_rc()), Value::Bottom);
     assert_eq!(
         *null.clone_rc().join(int.clone_rc()),
-        Value::Disjunct(vec![null.clone_rc(), int.clone_rc()])
+        *null.clone_rc().disjunct_with(int.clone_rc())
     );
 
     assert_eq!(
@@ -43,6 +63,14 @@ fn test_value() {
         stringmatch.clone_rc()
     );
     assert_eq!(int.clone_rc().meet(intgt5.clone_rc()), intgt5.clone_rc());
+    assert_eq!(
+        stringmatch.clone_rc().meet(stringtest.clone_rc()),
+        stringtest.clone_rc()
+    );
+    assert_eq!(
+        string.clone_rc().meet(stringtest.clone_rc()),
+        stringtest.clone_rc()
+    );
 }
 
 impl Value {
@@ -214,18 +242,37 @@ impl Field {
     }
 
     pub fn with_value(&self, value: Rc<Value>) -> Field {
-        Self::new(self.label, self.optional, value)
+        Self::new(self.label.clone(), self.optional, value)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum BasicValue {
-    Bytes(ValueType<usize>),
-    String(ValueType<usize>),
+    Bytes(ValueType<u64>),
+    String(ValueType<u64>),
     Float(ValueType<f64>),
     Int(ValueType<i64>),
     Bool(ValueType<bool>),
     Null,
+}
+
+lazy_static::lazy_static! {
+    static ref STRINGS: RwLock<HashMap<u64, String>> = RwLock::default();
+}
+
+fn intern(value: &str) -> u64 {
+    let mut h = DefaultHasher::new();
+    value.hash(&mut h);
+    let key = h.finish();
+
+    if !STRINGS.read().is_ok_and(|m| m.contains_key(&key)) {
+        STRINGS.write().expect("really need to write this").insert(key, value.to_string());
+    }
+    return key;
+}
+
+fn outtern(key: &u64) -> Option<String> {
+    STRINGS.read().expect("reading string intern map").get(key).map(String::clone)
 }
 
 impl BasicValue {
@@ -233,19 +280,21 @@ impl BasicValue {
         Self::Bytes(ValueType::Type)
     }
     pub fn bytes_constraint(op: Op, value: &str) -> Self {
-        Self::Bytes(ValueType::Constraint(op, 0))
+
+
+        Self::Bytes(ValueType::Constraint(op, intern(value)))
     }
     pub fn bytes(value: &str) -> Self {
-        Self::Bytes(ValueType::Concrete(0))
+        Self::Bytes(ValueType::Concrete(intern(value)))
     }
     pub fn string_t() -> Self {
         Self::String(ValueType::Type)
     }
     pub fn string_constraint(op: Op, value: &str) -> Self {
-        Self::String(ValueType::Constraint(op, 0))
+        Self::String(ValueType::Constraint(op, intern(value)))
     }
     pub fn string(value: &str) -> Self {
-        Self::String(ValueType::Concrete(0))
+        Self::String(ValueType::Concrete(intern(value)))
     }
     pub fn float_t() -> Self {
         Self::Float(ValueType::Type)
@@ -274,13 +323,13 @@ impl BasicValue {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ValueType<T: PartialEq + Copy> {
+pub enum ValueType<T: PartialEq + PartialOrd> {
     Type,
     Constraint(Op, T),
     Concrete(T),
 }
 
-impl<T: PartialEq + Copy + PartialOrd + Debug> PartialOrd for ValueType<T> {
+impl<T: PartialEq + PartialOrd + Debug> PartialOrd for ValueType<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         match (self, other) {
             (ValueType::Type, ValueType::Type) => Some(Ordering::Equal),
@@ -288,10 +337,10 @@ impl<T: PartialEq + Copy + PartialOrd + Debug> PartialOrd for ValueType<T> {
             (_, ValueType::Type) => Some(Ordering::Less),
 
             (ValueType::Constraint(op, a), ValueType::Concrete(b)) => {
-                ValueType::constrains(a, op, b).then_some(Ordering::Greater)
+                ValueType::t_constrains(a, op, b).then_some(Ordering::Greater)
             }
             (ValueType::Concrete(a), ValueType::Constraint(op, b)) => {
-                ValueType::constrains(b, op, a).then_some(Ordering::Less)
+                ValueType::t_constrains(b, op, a).then_some(Ordering::Less)
             }
 
             (ValueType::Concrete(a), ValueType::Concrete(b)) if a == b => Some(Ordering::Equal),
@@ -301,8 +350,8 @@ impl<T: PartialEq + Copy + PartialOrd + Debug> PartialOrd for ValueType<T> {
     }
 }
 
-impl<T: PartialEq + Copy + PartialOrd> ValueType<T> {
-    pub fn constrains(a: T, op: &Op, b: T) -> bool {
+impl<T: PartialEq + PartialOrd> ValueType<T> {
+    pub fn t_constrains(a: T, op: &Op, b: T) -> bool {
         match op {
             Op::Not => a != b,
             // Op::Noop => todo!(),
@@ -332,6 +381,51 @@ impl<T: PartialEq + Copy + PartialOrd> ValueType<T> {
             // Op::IntModulo => todo!(),
             // Op::Interpolation => todo!(),
             _ => panic!("invalid constraint op"),
+        }
+    }
+}
+
+impl ValueType<u64> {
+    pub fn string_constrains(&self, op: &Op, other: Self) -> bool {
+        let a = self.get_str().expect("what could possibly go wrong");
+        let b = other.get_str().expect("what could possibly go wrong");
+        match op {
+            Op::Not => a != b,
+            // Op::Noop => todo!(),
+            // Op::And => a & b,
+            // Op::Or => a | b,
+            // Op::Selector => todo!(),
+            // Op::Index => todo!(),
+            // Op::Slice => todo!(),
+            // Op::Call => todo!(),
+            // Op::BoolAnd => todo!(),
+            // Op::BoolOr => todo!(),
+            Op::Equal => a == b,
+            Op::NotEqual => a != b,
+            Op::LessThan => a < b,
+            Op::LessEqual => a <= b,
+            Op::GreaterThan => a > b,
+            Op::GreaterEqual => a >= b,
+            Op::Match => todo!(),
+            Op::NotMatch => todo!(),
+            // Op::Add => todo!(),
+            // Op::Subtract => todo!(),
+            // Op::Multiply => todo!(),
+            // Op::FloatQuotient => todo!(),
+            // Op::IntQuotient => todo!(),
+            // Op::IntRemainder => todo!(),
+            // Op::IntDivide => todo!(),
+            // Op::IntModulo => todo!(),
+            // Op::Interpolation => todo!(),
+            _ => panic!("invalid constraint op: {:?}", op),
+        }
+    }
+
+    pub fn get_str(&self) -> Result<ValueType<String>, &str> {
+        match self {
+            ValueType::Type => Ok(ValueType::Type),
+            ValueType::Constraint(op, val) => Ok(ValueType::Constraint(*op, outtern(val).unwrap())),
+            ValueType::Concrete(val) => Ok(ValueType::Concrete(outtern(val).unwrap())),
         }
     }
 }

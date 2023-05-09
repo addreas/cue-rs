@@ -97,8 +97,8 @@ pub struct ListMarker {
 pub struct StructMarker {
     needs_close: bool,
 }
-pub struct Top<'a> {
-    node: ast::Ident<'a>,
+pub struct Top {
+    node: ast::Ident,
 }
 
 pub struct BasicType {
@@ -334,7 +334,7 @@ impl Node for Bytes {
         &self.node
     }
 }
-impl<'a> Node for Top<'a> {
+impl Node for Top {
     fn source(&self) -> &Box<dyn ast::Node> {
         todo!()
     }
@@ -361,7 +361,7 @@ impl Node for BoundExpr {
 }
 impl Node for NodeLink {
     fn source(&self) -> &Box<dyn ast::Node> {
-        &self.node.source()
+        self.node.source()
     }
 }
 impl Node for FieldReference {
@@ -481,6 +481,6 @@ impl Node for LetClause {
 }
 impl Node for ValueClause {
     fn source(&self) -> &Box<dyn ast::Node> {
-        &self.struct_lit.source()
+        self.struct_lit.source()
     }
 }

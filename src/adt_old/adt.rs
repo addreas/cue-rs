@@ -42,7 +42,7 @@ impl Expr for Bool {}
 impl Expr for Num {}
 impl Expr for String {}
 impl Expr for Bytes {}
-impl Expr for Top<'static> {}
+impl Expr for Top {}
 impl Expr for BasicType {}
 impl Expr for Vertex {}
 // impl Expr for ListMarker {}
@@ -96,8 +96,8 @@ impl Decl for String {}
 impl Elem for String {}
 impl Decl for Bytes {}
 impl Elem for Bytes {}
-impl Decl for Top<'static> {}
-impl Elem for Top<'static> {}
+impl Decl for Top {}
+impl Elem for Top {}
 impl Decl for BasicType {}
 impl Elem for BasicType {}
 impl Decl for BoundExpr {}

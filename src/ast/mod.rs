@@ -1,7 +1,7 @@
 pub mod parser;
 
 pub trait Node {
-    fn source(&self) -> pest::Span;
+    fn source(&self) -> &pest::Span;
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -34,278 +34,294 @@ pub enum Operator {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Comment<'a> {
-    pub text: &'a str,
+pub struct Comment {
+    pub text: String,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct CommentGroup<'a> {
+pub struct CommentGroup {
     pub doc: bool,
     pub line: bool,
 
     pub position: u8,
-    pub comments: Vec<Comment<'a>>,
+    pub comments: Vec<Comment>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Ident<'a> {
-    pub name: &'a str,
+pub struct Ident {
+    pub name: String,
     // scope: Node,
     // node: Node,
 }
 
-impl<'a> Ident<'a> {
-    pub fn new(name: &'a str) -> Self {
-        Self { name }
+impl Ident {
+    pub fn from(name: &str) -> Self {
+        Self {
+            name: String::from(name),
+        }
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Ellipsis<'a> {
-    pub inner: Expr<'a>,
+pub struct Ellipsis {
+    pub inner: Expr,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum BasicLit<'a> {
+pub enum BasicLit {
     Bottom,
     Null,
     Bool(bool),
     Int(i64),
     Float(f64),
     String(String),
-    Bytes(&'a str),
+    Bytes(String),
     // Duration,
 }
 
 // #[derive(Debug, PartialEq, Clone)]
-// pub struct BasicLit<'a> {
+// pub struct BasicLit {
 //     pub kind: BasicLitType<'a>,
 //     pub value: String,
 // }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ImportSpec<'a> {
-    pub alias: Ident<'a>,
-    pub path: BasicLit<'a>,
-    pub package: Option<Ident<'a>>,
+pub struct ImportSpec {
+    pub alias: Ident,
+    pub path: BasicLit,
+    pub package: Option<Ident>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct File<'a> {
-    pub name: &'a str,
-    pub package: Option<Ident<'a>>,
-    pub declarations: Vec<Declaration<'a>>,
-    pub imports: Vec<Declaration<'a>>,
-    pub attributes: Vec<Attribute<'a>>,
+pub struct SourceFile {
+    pub package: Option<Ident>,
+    pub declarations: Vec<Declaration>,
+    pub imports: Vec<Declaration>,
+    pub attributes: Vec<Attribute>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Attribute<'a> {
-    pub text: &'a str,
+pub struct Attribute {
+    pub text: String,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Alias<'a> {
-    pub ident: Ident<'a>,
-    pub expr: Expr<'a>,
+pub struct Alias {
+    pub ident: Ident,
+    pub expr: Expr,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Field<'a> {
-    pub label: Label<'a>,
-    pub value: Expr<'a>,
-    pub attributes: Option<Vec<Attribute<'a>>>,
+pub struct Field {
+    pub label: Label,
+    pub value: Expr,
+    pub attributes: Option<Vec<Attribute>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Comprehension<'a> {
-    pub clauses: Vec<Clause<'a>>,
-    pub expr: Expr<'a>,
+pub struct Comprehension {
+    pub clauses: Vec<Clause>,
+    pub expr: Expr,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct LetClause<'a> {
-    pub alias: Ident<'a>,
-    pub value: Expr<'a>,
+pub struct LetClause {
+    pub alias: Ident,
+    pub value: Expr,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct ListLit<'a> {
-    pub elements: Vec<Expr<'a>>,
+pub struct ListLit {
+    pub elements: Vec<Expr>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct StructLit<'a> {
-    pub elements: Vec<Declaration<'a>>,
+pub struct StructLit {
+    pub elements: Vec<Declaration>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Interpolation<'a> {
+pub struct Interpolation {
     pub is_bytes: bool,
-    pub elements: Vec<Expr<'a>>,
+    pub elements: Vec<Expr>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Label<'a> {
-    Ident(Ident<'a>),
-    Alias(Alias<'a>),
-    Basic(Interpolation<'a>),
-    Paren(Expr<'a>),
-    Bracket(Expr<'a>),
+pub enum Label {
+    Ident(Ident),
+    Alias(Alias),
+    Basic(Interpolation),
+    Paren(Expr),
+    Bracket(Expr),
 }
 
-impl<'a> Label<'a> {
-    pub fn ident(x: Ident<'a>) -> Self {
+impl Label {
+    pub fn ident(x: Ident) -> Self {
         Self::Ident(x)
     }
-    pub fn alias(ident: Ident<'a>, expr: Expr<'a>) -> Self {
+    pub fn alias(ident: Ident, expr: Expr) -> Self {
         Self::Alias(Alias { ident, expr })
     }
-    pub fn basic(elements: Vec<Expr<'a>>) -> Self {
+    pub fn basic(elements: Vec<Expr>) -> Self {
         Self::Basic(Interpolation {
             is_bytes: false,
             elements,
         })
     }
-    pub fn paren(x: Expr<'a>) -> Self {
+    pub fn paren(x: Expr) -> Self {
         Self::Paren(x)
     }
-    pub fn bracket(x: Expr<'a>) -> Self {
+    pub fn bracket(x: Expr) -> Self {
         Self::Bracket(x)
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Declaration<'a> {
+pub enum Declaration {
     Bad,
-    CommentGroup(CommentGroup<'a>),
-    Attribute(Attribute<'a>),
-    Field(Field<'a>),
-    Alias(Alias<'a>),
-    Comprehension(Comprehension<'a>),
-    Ellipsis(Ellipsis<'a>),
-    LetClause(LetClause<'a>),
-    ImportDecl(Vec<ImportSpec<'a>>),
-    Embedding(Expr<'a>),
+    CommentGroup(CommentGroup),
+    Attribute(Attribute),
+    Field(Field),
+    Alias(Alias),
+    Comprehension(Comprehension),
+    Ellipsis(Ellipsis),
+    LetClause(LetClause),
+    ImportDecl(Vec<ImportSpec>),
+    Embedding(Expr),
 }
 
-impl<'a> Declaration<'a> {
+impl Declaration {
     pub fn bad() -> Self {
         Self::Bad
     }
-    pub fn comment_group(cg: CommentGroup<'a>) -> Self {
+    pub fn comment_group(cg: CommentGroup) -> Self {
         Self::CommentGroup(cg)
     }
-    pub fn attribute(text: &'a str) -> Self {
+    pub fn attribute(text: String) -> Self {
         Self::Attribute(Attribute { text })
     }
-    pub fn field(label: Label<'a>, value: Expr<'a>) -> Self {
+    pub fn field(label: Label, value: Expr) -> Self {
         Self::Field(Field {
             label,
             value,
             attributes: None,
         })
     }
-    pub fn alias(ident: Ident<'a>, expr: Expr<'a>) -> Self {
+    pub fn alias(ident: Ident, expr: Expr) -> Self {
         Self::Alias(Alias { ident, expr })
     }
-    pub fn comprehension(clauses: Vec<Clause<'a>>, expr: Expr<'a>) -> Self {
+    pub fn comprehension(clauses: Vec<Clause>, expr: Expr) -> Self {
         Self::Comprehension(Comprehension { clauses, expr })
     }
-    pub fn ellipsis(inner: Expr<'a>) -> Self {
+    pub fn ellipsis(inner: Expr) -> Self {
         Self::Ellipsis(Ellipsis { inner })
     }
-    pub fn let_clause(alias: Ident<'a>, value: Expr<'a>) -> Self {
+    pub fn let_clause(alias: Ident, value: Expr) -> Self {
         Self::LetClause(LetClause { alias, value })
     }
-    pub fn import_decl(x: Vec<ImportSpec<'a>>) -> Self {
+    pub fn import_decl(x: Vec<ImportSpec>) -> Self {
         Self::ImportDecl(x)
     }
-    pub fn embedding(x: Expr<'a>) -> Self {
+    pub fn embedding(x: Expr) -> Self {
         Self::Embedding(x)
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Clause<'a> {
-    If(Expr<'a>),
+pub enum Clause {
+    If(Expr),
     For {
-        key: Option<Ident<'a>>,
-        value: Ident<'a>,
-        source: Expr<'a>,
+        key: Option<Ident>,
+        value: Ident,
+        source: Expr,
     },
-    Let(LetClause<'a>),
+    Let(LetClause),
 }
 
-impl<'a> Clause<'a> {
-    pub fn if_clause(e: Expr<'a>) -> Self {
+impl Clause {
+    pub fn if_clause(e: Expr) -> Self {
         Self::If(e)
     }
-    pub fn for_clause(key: Option<Ident<'a>>, value: Ident<'a>, source: Expr<'a>) -> Self {
+    pub fn for_clause(key: Option<Ident>, value: Ident, source: Expr) -> Self {
         Self::For { key, value, source }
     }
-    pub fn let_clause(alias: Ident<'a>, value: Expr<'a>) -> Self {
+    pub fn let_clause(alias: Ident, value: Expr) -> Self {
         Self::Let(LetClause { alias, value })
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Expr<'a> {
-    Bad,
-    Alias(Box<Alias<'a>>),
-    Comprehension(Box<Comprehension<'a>>),
-    Ident(Ident<'a>),
-    QualifiedIdent(Ident<'a>, Ident<'a>),
-    BasicLit(BasicLit<'a>),
-    Interpolation(Interpolation<'a>),
-    Struct(StructLit<'a>),
-    List(ListLit<'a>),
-    Ellipsis(Box<Ellipsis<'a>>),
-    UnaryExpr {
-        op: Operator,
-        child: Box<Expr<'a>>,
-    },
-    BinaryExpr {
-        op: Operator,
-        lhs: Box<Expr<'a>>,
-        rhs: Box<Expr<'a>>,
-    },
-    Parens {
-        inner: Box<Expr<'a>>,
-    },
-    Selector {
-        source: Box<Expr<'a>>,
-        field: Box<Label<'a>>,
-    },
-    Index {
-        source: Box<Expr<'a>>,
-        index: Box<Expr<'a>>,
-    },
-    Slice {
-        source: Box<Expr<'a>>,
-        low: Box<Expr<'a>>,
-        high: Box<Expr<'a>>,
-    },
-    Call {
-        source: Box<Expr<'a>>,
-        args: Vec<Expr<'a>>,
-    },
+pub struct UnaryExpr {
+    op: Operator,
+    child: Box<Expr>,
+}
+#[derive(Debug, PartialEq, Clone)]
+pub struct BinaryExpr {
+    rhs: Box<Expr>,
+    op: Operator,
+    lhs: Box<Expr>,
+}
+#[derive(Debug, PartialEq, Clone)]
+pub struct Parens {
+    inner: Box<Expr>,
+}
+#[derive(Debug, PartialEq, Clone)]
+pub struct Selector {
+    source: Box<Expr>,
+    field: Box<Label>,
+}
+#[derive(Debug, PartialEq, Clone)]
+pub struct Index {
+    source: Box<Expr>,
+    index: Box<Expr>,
+}
+#[derive(Debug, PartialEq, Clone)]
+pub struct Slice {
+    source: Box<Expr>,
+    low: Box<Expr>,
+    high: Box<Expr>,
+}
+#[derive(Debug, PartialEq, Clone)]
+pub struct Call {
+    source: Box<Expr>,
+    args: Vec<Expr>,
 }
 
-impl<'a> Expr<'a> {
+#[derive(Debug, PartialEq, Clone)]
+pub enum Expr {
+    Bad,
+    Alias(Box<Alias>),
+    Comprehension(Box<Comprehension>),
+    Ident(Ident),
+    QualifiedIdent(Ident, Ident),
+    BasicLit(BasicLit),
+    Interpolation(Interpolation),
+    Struct(StructLit),
+    List(ListLit),
+    Ellipsis(Box<Ellipsis>),
+    UnaryExpr(UnaryExpr),
+    BinaryExpr(BinaryExpr),
+    Parens(Parens),
+    Selector(Selector),
+    Index(Index),
+    Slice(Slice),
+    Call(Call),
+}
+
+impl Expr {
     pub fn string(x: String) -> Self {
         Self::BasicLit(BasicLit::String(x))
     }
-    pub fn string_interpolation(elements: Vec<Expr<'a>>) -> Self {
+    pub fn string_interpolation(elements: Vec<Expr>) -> Self {
         Self::Interpolation(Interpolation {
             is_bytes: false,
             elements,
         })
     }
-    pub fn bytes(x: &'a str) -> Self {
+    pub fn bytes(x: String) -> Self {
         Self::BasicLit(BasicLit::Bytes(x))
     }
-    pub fn bytes_interpolation(elements: Vec<Expr<'a>>) -> Self {
+    pub fn bytes_interpolation(elements: Vec<Expr>) -> Self {
         Self::Interpolation(Interpolation {
             is_bytes: true,
             elements,
@@ -323,29 +339,72 @@ impl<'a> Expr<'a> {
     pub fn bottom() -> Self {
         Self::BasicLit(BasicLit::Bottom)
     }
-    pub fn alias(ident: Ident<'a>, expr: Expr<'a>) -> Self {
+    pub fn alias(ident: Ident, expr: Expr) -> Self {
         Self::Alias(Box::new(Alias { ident, expr }))
     }
-    pub fn comprehension(clauses: Vec<Clause<'a>>, expr: Expr<'a>) -> Self {
+    pub fn comprehension(clauses: Vec<Clause>, expr: Expr) -> Self {
         Self::Comprehension(Box::new(Comprehension { clauses, expr }))
     }
-    pub fn ident(name: &'a str) -> Self {
+    pub fn ident(name: String) -> Self {
         Self::Ident(Ident { name })
     }
-    pub fn qualified_ident(package: Ident<'a>, ident: Ident<'a>) -> Self {
+    pub fn qualified_ident(package: Ident, ident: Ident) -> Self {
         Self::QualifiedIdent(package, ident)
     }
-    pub fn struct_lit(elements: Vec<Declaration<'a>>) -> Self {
+    pub fn struct_lit(elements: Vec<Declaration>) -> Self {
         Self::Struct(StructLit { elements })
     }
-    pub fn list(elements: Vec<Expr<'a>>) -> Self {
+    pub fn list(elements: Vec<Expr>) -> Self {
         Self::List(ListLit { elements })
     }
-    pub fn ellipsis(inner: Expr<'a>) -> Self {
+    pub fn ellipsis(inner: Expr) -> Self {
         Self::Ellipsis(Box::new(Ellipsis { inner }))
+    }
+    pub fn unary_expr<'a>(op: Operator, child: Expr) -> Self {
+        Self::UnaryExpr(UnaryExpr {
+            op,
+            child: Box::new(child),
+        })
+    }
+    pub fn binary_expr(rhs: Expr, op: Operator, lhs: Expr) -> Self {
+        Self::BinaryExpr(BinaryExpr {
+            rhs: Box::new(rhs),
+            op,
+            lhs: Box::new(lhs),
+        })
+    }
+    pub fn parens(inner: Expr) -> Self {
+        Self::Parens(Parens {
+            inner: Box::new(inner),
+        })
+    }
+    pub fn selector(source: Expr, field: Label) -> Self {
+        Self::Selector(Selector {
+            source: Box::new(source),
+            field: Box::new(field),
+        })
+    }
+    pub fn index(source: Expr, index: Expr) -> Self {
+        Self::Index(Index {
+            source: Box::new(source),
+            index: Box::new(index),
+        })
+    }
+    pub fn slice(source: Expr, low: Expr, high: Expr) -> Self {
+        Self::Slice(Slice {
+            source: Box::new(source),
+            low: Box::new(low),
+            high: Box::new(high),
+        })
+    }
+    pub fn call(source: Expr, args: Vec<Expr>) -> Self {
+        Self::Call(Call {
+            source: Box::new(source),
+            args,
+        })
     }
 }
 
-pub fn new_str<'a>(s: String) -> Expr<'a> {
+pub fn new_str<'a>(s: String) -> Expr {
     Expr::BasicLit(BasicLit::String(s))
 }

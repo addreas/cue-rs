@@ -11,6 +11,8 @@ Very WIP atm. Only implementing for fun, will probably give up at some point.
 - https://cuelang.org/docs/references/spec/
 - https://github.com/cue-lang/cue/blob/master/doc/ref/impl.md
 - https://cuetorials.com/cueology/theory/
+- https://dl.acm.org/doi/pdf/10.3115/981344.981385
+- https://github.com/cue-lang/cue/issues/1442
 
 # Cheat with existing logic programming libs?
 
