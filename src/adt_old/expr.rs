@@ -1,7 +1,7 @@
 use super::{
     adt::{Decl, Elem, Expr, Node, Value, Yielder},
     composite::{OptionalType, Vertex},
-    comprehension::envComprehension,
+    comprehension::EnvComprehension,
     context::OpContext,
     errors::Bottom,
     feature::Feature,
@@ -9,7 +9,7 @@ use super::{
     op::Op,
 };
 use crate::ast;
-
+#[allow(dead_code)]
 pub struct StructLit {
     node: Box<dyn ast::Node>,
 
@@ -23,22 +23,26 @@ pub struct StructLit {
     initialized: bool,
     types: OptionalType,
 }
+#[allow(dead_code)]
 pub struct FieldInfo {
     label: Feature,
     optional: Box<dyn Node>,
 }
+#[allow(dead_code)]
 pub struct Field {
     node: Box<dyn ast::Node>,
 
     label: Feature,
     value: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct OptionalField {
     node: Box<dyn ast::Node>,
 
     label: Feature,
     value: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct BulkOptionalField {
     node: Box<dyn ast::Node>,
 
@@ -46,98 +50,116 @@ pub struct BulkOptionalField {
     value: Box<dyn Expr>,
     label: Feature,
 }
+#[allow(dead_code)]
 pub struct Ellipsis {
     node: Box<dyn ast::Node>,
 
     value: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct DynamicField {
     node: Box<dyn ast::Node>,
 
     key: Box<dyn Expr>,
     value: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct ListLit {
     node: Box<dyn ast::Node>,
 
     elems: Vec<Box<dyn Elem>>,
     info: Box<StructLit>,
 }
+#[allow(dead_code)]
 pub struct Null {
     node: Box<dyn ast::Node>,
 }
+#[allow(dead_code)]
 pub struct Bool {
     node: Box<dyn ast::Node>,
 
     b: bool,
 }
+#[allow(dead_code)]
 pub struct Num {
     node: Box<dyn ast::Node>,
 
     k: Kind,
     n: f64,
 }
+#[allow(dead_code)]
 pub struct String {
     node: Box<dyn ast::Node>,
 
     str: std::string::String,
     // RE:  regex::Regex
 }
+#[allow(dead_code)]
 pub struct Bytes {
     node: Box<dyn ast::Node>,
 
     b: Box<str>,
     // RE:  regex::Regex
 }
+#[allow(dead_code)]
 pub struct ListMarker {
     node: Box<dyn ast::Node>,
 
     is_open: bool,
 }
+#[allow(dead_code)]
 pub struct StructMarker {
     needs_close: bool,
 }
+#[allow(dead_code)]
 pub struct Top {
     node: ast::Ident,
 }
-
+#[allow(dead_code)]
 pub struct BasicType {
     node: Box<dyn ast::Node>,
 
     k: Kind,
 }
+#[allow(dead_code)]
 pub struct BoundExpr {
     node: Box<dyn ast::Node>,
 
     op: Op,
     expr: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct BoundValue {
     node: Box<dyn ast::Node>,
 
     op: Op,
     value: Box<dyn Value>,
 }
+#[allow(dead_code)]
 pub struct NodeLink {
     node: Box<Vertex>,
 }
+#[allow(dead_code)]
 pub struct FieldReference {
     node: Box<dyn ast::Node>,
 
     up_count: u32,
     label: Feature,
 }
+#[allow(dead_code)]
 pub struct ValueReference {
     node: Box<dyn ast::Node>,
 
     up_count: u32,
     label: Feature,
 }
+#[allow(dead_code)]
 pub struct LabelReference {
     node: Box<dyn ast::Node>,
 
     up_count: u32,
 }
+#[allow(dead_code)]
 pub struct DynamicReference {
     node: Box<dyn ast::Node>,
 
@@ -146,12 +168,14 @@ pub struct DynamicReference {
 
     alias: Feature,
 }
+#[allow(dead_code)]
 pub struct ImportReference {
     node: Box<dyn ast::Node>,
 
     import_path: Feature,
     label: Feature,
 }
+#[allow(dead_code)]
 pub struct LetReference {
     node: Box<dyn ast::Node>,
 
@@ -159,18 +183,21 @@ pub struct LetReference {
     label: Feature,
     x: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct SelectorExpr {
     node: Box<dyn ast::Node>,
 
     x: Box<dyn Expr>,
     sel: Feature,
 }
+#[allow(dead_code)]
 pub struct IndexExpr {
     node: Box<dyn ast::Node>,
 
     x: Box<dyn Expr>,
     index: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct SliceExpr {
     node: Box<dyn ast::Node>,
 
@@ -179,17 +206,20 @@ pub struct SliceExpr {
     high: Box<dyn Expr>,
     stride: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct Interpolation {
     node: Box<dyn ast::Node>,
     k: Kind,
     parts: Vec<Box<dyn Expr>>,
 }
+#[allow(dead_code)]
 pub struct UnaryExpr {
     node: Box<dyn ast::Node>,
 
     op: Op,
     x: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct BinaryExpr {
     node: Box<dyn ast::Node>,
 
@@ -197,12 +227,14 @@ pub struct BinaryExpr {
     x: Box<dyn Expr>,
     y: Box<dyn Expr>,
 }
+#[allow(dead_code)]
 pub struct CallExpr {
     node: Box<dyn ast::Node>,
 
     fun: Box<dyn Expr>,
     args: Vec<Box<dyn Expr>>,
 }
+#[allow(dead_code)]
 pub struct Builtin {
     node: Box<dyn ast::Node>,
 
@@ -213,16 +245,19 @@ pub struct Builtin {
     package: Feature,
     name: String,
 }
+#[allow(dead_code)]
 pub struct Param {
     name: Feature,
     value: Box<dyn Value>,
 }
+#[allow(dead_code)]
 pub struct BuiltinValidator {
     node: Box<dyn ast::Node>,
 
     builtin: Box<Builtin>,
     args: Vec<Box<dyn Value>>,
 }
+#[allow(dead_code)]
 pub struct DisjunctionExpr {
     node: Box<dyn ast::Node>,
 
@@ -230,15 +265,18 @@ pub struct DisjunctionExpr {
 
     has_defaults: bool,
 }
+#[allow(dead_code)]
 pub struct Disjunct {
     val: Box<dyn Expr>,
     default: bool,
 }
+#[allow(dead_code)]
 pub struct Conjunction {
     node: Box<dyn ast::Node>,
 
     values: Vec<Box<dyn Value>>,
 }
+#[allow(dead_code)]
 pub struct Disjunction {
     node: Box<dyn ast::Node>,
 
@@ -250,15 +288,17 @@ pub struct Disjunction {
     num_defaults: usize,
     has_defaults: bool,
 }
+#[allow(dead_code)]
 pub struct Comprehension {
     node: Box<dyn ast::Node>,
 
     value: Box<dyn Node>,
 
     // Only used for partial comprehensions.
-    comp: Box<envComprehension>,
+    comp: Box<EnvComprehension>,
     nest: usize,
 }
+#[allow(dead_code)]
 pub struct ForClause {
     node: Box<dyn ast::Node>,
 
@@ -267,12 +307,14 @@ pub struct ForClause {
     src: Box<dyn Expr>,
     dst: Box<dyn Yielder>,
 }
+#[allow(dead_code)]
 pub struct IfClause {
     node: Box<dyn ast::Node>,
 
     condition: Box<dyn Expr>,
     dst: Box<dyn Yielder>,
 }
+#[allow(dead_code)]
 pub struct LetClause {
     node: Box<dyn ast::Node>,
 

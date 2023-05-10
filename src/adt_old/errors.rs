@@ -2,7 +2,7 @@ use super::adt::{Node, Value};
 use crate::ast;
 
 pub type Error = usize; //TODO
-
+#[allow(dead_code)]
 pub struct Bottom {
     node: Box<dyn ast::Node>,
 

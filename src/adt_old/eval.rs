@@ -2,14 +2,14 @@ use super::{
     adt::{Expr, Validator, Value},
     closed::CloseInfo,
     composite::{Conjunct, Environment, Vertex},
-    comprehension::envYield,
+    comprehension::EnvYield,
     context::OpContext,
     disjunct::{DefaultMode, EnvDisjunct},
     errors::Bottom,
     expr::{BoundValue, DynamicField, Ellipsis, ListLit},
     kind::Kind,
 };
-
+#[allow(dead_code)]
 pub struct Stats {
     disjunct_count: i64,
     unify_count: i64,
@@ -19,13 +19,13 @@ pub struct Stats {
     reused: i64,
     allocs: i64,
 }
-
+#[allow(dead_code)]
 pub struct NodeContext {
     next_free: Box<NodeContext>,
     ref_count: usize,
     ctx: Box<OpContext>,
     node: Box<Vertex>,
-    arc_map: Vec<arcKey>,
+    arc_map: Vec<ArcKey>,
     snapshot: Vertex,
     result: Vertex,
     scalar: Box<dyn Value>,
@@ -36,60 +36,60 @@ pub struct NodeContext {
     lower_bound: Box<BoundValue>,
     upper_bound: Box<BoundValue>,
     checks: Vec<Box<dyn Validator>>,
-    post_checks: Vec<envCheck>,
+    post_checks: Vec<EnvCheck>,
     errs: Box<Bottom>,
     conjuncts: Vec<Conjunct>,
     notify: Vec<Box<Vertex>>,
-    dynamic_fields: Vec<envDynamic>,
-    comprehensions: Vec<envYield>,
+    dynamic_fields: Vec<EnvDynamic>,
+    comprehensions: Vec<EnvYield>,
     a_struct: Box<dyn Expr>,
     a_struct_id: CloseInfo,
-    lists: Vec<envList>,
+    lists: Vec<EnvList>,
     v_lists: Vec<Box<Vertex>>,
-    exprs: Vec<envExpr>,
+    exprs: Vec<EnvExpr>,
     has_top: bool,
     has_cycle: bool,
     has_non_cycle: bool,
     disjunctions: Vec<EnvDisjunct>,
-    used_default: Vec<defaultInfo>,
+    used_default: Vec<DefaultInfo>,
     default_mode: DefaultMode,
     disjuncts: Vec<Box<NodeContext>>,
     buffer: Vec<Box<NodeContext>>,
     disjunct_errs: Vec<Box<Bottom>>,
 }
-
-pub struct arcKey {
+#[allow(dead_code)]
+pub struct ArcKey {
     arc: Box<Vertex>,
     id: CloseInfo,
 }
-
-pub struct envExpr {
+#[allow(dead_code)]
+pub struct EnvExpr {
     c: Conjunct,
     err: Box<Bottom>,
 }
-
-pub struct envDynamic {
+#[allow(dead_code)]
+pub struct EnvDynamic {
     env: Box<Environment>,
     field: Box<DynamicField>,
     id: CloseInfo,
     err: Box<Bottom>,
 }
-
-pub struct envList {
+#[allow(dead_code)]
+pub struct EnvList {
     env: Box<Environment>,
     list: Box<ListLit>,
     n: usize,
     elipsis: Box<Ellipsis>,
     id: CloseInfo,
 }
-
-pub struct envCheck {
+#[allow(dead_code)]
+pub struct EnvCheck {
     env: Box<Environment>,
     expr: Box<dyn Expr>,
     expect_error: bool,
 }
-
-pub struct defaultInfo {
+#[allow(dead_code)]
+pub struct DefaultInfo {
     parent_mode: DefaultMode,
     nested_mode: DefaultMode,
     orig_mode: DefaultMode,

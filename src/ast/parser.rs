@@ -1,50 +1,43 @@
 use std::vec;
+use std::result::Result;
+use pest::{pratt_parser::{Assoc, Op, PrattParser}, iterators::Pair};
 
-use pest::prec_climber::{Assoc, Operator, PrecClimber};
-#[allow(unused_imports)]
-use pretty_assertions::assert_eq;
 
 use crate::ast;
-use pest_consume::{match_nodes, Error, Parser};
 
 #[derive(Parser)]
 #[grammar = "./ast/cue.pest"]
 pub struct CUEParser;
 
 lazy_static::lazy_static! {
-    static ref PRECCLIMBER: PrecClimber<Rule> = PrecClimber::new(
-        vec![
-            Operator::new(Rule::disjunct_op, Assoc::Left),
-            Operator::new(Rule::conjuct_op, Assoc::Left),
-            Operator::new(Rule::or_op, Assoc::Left),
-            Operator::new(Rule::and_op, Assoc::Left),
-            Operator::new(Rule::rel_op, Assoc::Left) | Operator::new(Rule::equal_op, Assoc::Left),
-            Operator::new(Rule::add_op, Assoc::Left),
-            Operator::new(Rule::mul_op, Assoc::Left),
-        ]
-    );
+    static ref  PRATT: PrattParser<Rule> =
+    PrattParser::new()
+        .op(Op::infix(Rule::disjunct_op, Assoc::Left))
+        .op(Op::infix(Rule::conjuct_op, Assoc::Left))
+        .op(Op::infix(Rule::or_op, Assoc::Left))
+        .op(Op::infix(Rule::and_op, Assoc::Left))
+        .op(Op::infix(Rule::rel_op, Assoc::Left) | Op::infix(Rule::equal_op, Assoc::Left))
+        .op(Op::infix(Rule::add_op, Assoc::Left))
+        .op(Op::infix(Rule::mul_op, Assoc::Left))
+        .op(Op::prefix(Rule::not_op) | Op::prefix(Rule::mul_op) | Op::prefix(Rule::rel_op) | Op::prefix(Rule::add_op));
 }
 
-type Result<T> = std::result::Result<T, Error<Rule>>;
-type Node<'i> = pest_consume::Node<'i, Rule, ()>;
+
+
 
 // This is the other half of the parser, using pest_consume.
-#[pest_consume::parser]
-#[allow(dead_code, non_snake_case)]
 impl CUEParser {
-    fn identifier(input: Node) -> Result<ast::Ident> {
-        Ok(ast::Ident {
-            name: input.as_str().to_string(),
-        })
+    fn identifier(input: Pair<Rule>) -> Result<ast::Ident, &str> {
+        Ok(ast::Ident { name: input.as_str().to_string()})
     }
-    fn unicode_char(input: Node) -> Result<char> {
+    fn unicode_char(input: Pair<Rule>) -> Result<char, &str> {
         input
             .as_str()
             .chars()
             .next()
-            .map_or(Err(input.error("no first char in str")), |c| Ok(c))
+            .map_or(Err("no first char in str"), |c| Ok(c))
     }
-    fn decimal_lit(input: Node) -> Result<i64> {
+    fn decimal_lit(input: Pair<Rule>) -> Result<i64, &str> {
         input
             .as_str()
             .replace("_", "")
@@ -52,30 +45,31 @@ impl CUEParser {
             .parse()
             .map_err(|e| input.error(format!("decimal_lit: {}: {}", input.as_str(), e)))
     }
-    fn fraction(input: Node) -> Result<f64> {
+    fn fraction(input: Pair<Rule>) -> Result<f64, &str> {
         ("0.".to_owned() + input.as_str().replace("_", "").as_str())
             .parse()
             .map_err(|e| input.error(format!("fraction: {}: {}", input.as_str(), e)))
     }
-    fn si_lit(input: Node) -> Result<i64> {
-        Ok(match_nodes!(input.into_children();
-            [decimal_lit(a), fraction(b), multiplier(m)] => ((a as f64 + b) * m  as f64) as i64,
-            [decimal_lit(a),              multiplier(m)] => ((a             * m) as f64) as i64,
-            [                fraction(b), multiplier(m)] => (            b  * m  as f64) as i64))
+    fn si_lit(input: Pair<Rule>) -> Result<i64, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [decimal_lit(a), fraction(b), multiplier(m)] => ((a as f64 + b) * m  as f64) as i64,
+        //     [decimal_lit(a),              multiplier(m)] => ((a             * m) as f64) as i64,
+        //     [                fraction(b), multiplier(m)] => (            b  * m  as f64) as i64))
     }
-    fn binary_lit(input: Node) -> Result<i64> {
+    fn binary_lit(input: Pair<Rule>) -> Result<i64, &str> {
         i64::from_str_radix(input.as_str(), 2)
             .map_err(|e| input.error(format!("binary_lit: {}: {}", input.as_str(), e)))
     }
-    fn octal_lit(input: Node) -> Result<i64> {
+    fn octal_lit(input: Pair<Rule>) -> Result<i64, &str> {
         i64::from_str_radix(input.as_str(), 8)
             .map_err(|e| input.error(format!("octal_lit: {}: {}", input.as_str(), e)))
     }
-    fn hex_lit(input: Node) -> Result<i64> {
+    fn hex_lit(input: Pair<Rule>) -> Result<i64, &str> {
         i64::from_str_radix(input.as_str(), 16)
             .map_err(|e| input.error(format!("hex_lit: {}: {}", input.as_str(), e)))
     }
-    fn multiplier(input: Node) -> Result<i64> {
+    fn multiplier(input: Pair<Rule>) -> Result<i64, &str> {
         match input.as_str() {
             "K" => Ok(i64::pow(10, 3)),
             "M" => Ok(i64::pow(10, 6)),
@@ -90,28 +84,31 @@ impl CUEParser {
             _ => Err(input.error(format!("unknown multiplier: {}", input.as_str()))),
         }
     }
-    fn exponent(input: Node) -> Result<i32> {
-        Ok(match_nodes!(input.into_children(); [decimal_lit(n)] => n as i32))
+    fn exponent(input: Pair<Rule>) -> Result<i32, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children(); [decimal_lit(n)] => n as i32))
     }
-    fn int_lit(input: Node) -> Result<i64> {
-        Ok(match_nodes!(input.into_children();
-            [si_lit(n)] => n,
-            [decimal_lit(n)] => n,
-            [binary_lit(n)] => n,
-            [octal_lit(n)] => n,
-            [hex_lit(n)] => n,
-        ))
+    fn int_lit(input: Pair<Rule>) -> Result<i64, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [si_lit(n)] => n,
+        //     [decimal_lit(n)] => n,
+        //     [binary_lit(n)] => n,
+        //     [octal_lit(n)] => n,
+        //     [hex_lit(n)] => n,
+        // ))
     }
-    fn float_lit(input: Node) -> Result<f64> {
-        Ok(match_nodes!(input.into_children();
-            [decimal_lit(a), fraction(b), exponent(e)] => (a as f64 + b) * f64::powi(10.0, e),
-            [decimal_lit(a), fraction(b)             ] =>  a as f64 + b,
-            [decimal_lit(a),              exponent(e)] =>  a as f64      * f64::powi(10.0, e),
-            [                fraction(b), exponent(e)] =>             b  * f64::powi(10.0, e),
-            [                fraction(b)             ] =>             b,
-        ))
+    fn float_lit(input: Pair<Rule>) -> Result<f64, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [decimal_lit(a), fraction(b), exponent(e)] => (a as f64 + b) * f64::powi(10.0, e),
+        //     [decimal_lit(a), fraction(b)             ] =>  a as f64 + b,
+        //     [decimal_lit(a),              exponent(e)] =>  a as f64      * f64::powi(10.0, e),
+        //     [                fraction(b), exponent(e)] =>             b  * f64::powi(10.0, e),
+        //     [                fraction(b)             ] =>             b,
+        // ))
     }
-    fn escaped_char(input: Node) -> Result<char> {
+    fn escaped_char(input: Pair<Rule>) -> Result<char, &str> {
         // println!("escaped_char: {:?}", input.as_str());
         match input.as_str().chars().last() {
             Some('a') => Ok('\u{0007}'),
@@ -125,92 +122,95 @@ impl CUEParser {
             x => Err(input.error(format!("escaped_char: unknown escape char {:?}", x))),
         }
     }
-    fn octal_byte_value(input: Node) -> Result<char> {
+    fn octal_byte_value(input: Pair<Rule>) -> Result<char, &str> {
         // println!("octal_byte_value: {:?}", input.as_str());
         parse_digits_radix(input, 8)
     }
-    fn hex_byte_value(input: Node) -> Result<char> {
+    fn hex_byte_value(input: Pair<Rule>) -> Result<char, &str> {
         // println!("hex_byte_value: {:?}", input.as_str());
         parse_digits_radix(input, 16)
     }
-    fn little_u_value(input: Node) -> Result<char> {
+    fn little_u_value(input: Pair<Rule>) -> Result<char, &str> {
         // println!("littel_u_value: {:?}", input.as_str());
         parse_digits_radix(input, 16)
     }
-    fn big_u_value(input: Node) -> Result<char> {
+    fn big_u_value(input: Pair<Rule>) -> Result<char, &str> {
         // println!("big_u_value: {:?}", input.as_str());
         parse_digits_radix(input, 16)
     }
-    fn unicode_value(input: Node) -> Result<char> {
+    fn unicode_value(input: Pair<Rule>) -> Result<char, &str> {
+        todo!()
         // println!("unicode_value: {:?}", input.as_str());
-        Ok(match_nodes!(input.clone().into_children();
-            [little_u_value(c)] => c,
-            [big_u_value(c)] => c,
-            [escaped_char(c)] => c,
-            [unicode_char(c)] => c,
-        ))
+        // Ok(match_nodes!(input.clone().into_children();
+        //     [little_u_value(c)] => c,
+        //     [big_u_value(c)] => c,
+        //     [escaped_char(c)] => c,
+        //     [unicode_char(c)] => c,
+        // ))
     }
-    fn byte_value(input: Node) -> Result<char> {
+    fn byte_value(input: Pair<Rule>) -> Result<char, &str> {
+        todo!()
         // println!("byte_value: {:?}", input.as_str());
-        Ok(match_nodes!(input.into_children();
-            [octal_byte_value(c)] => c,
-            [hex_byte_value(c)] => c,
-        ))
+        // Ok(match_nodes!(input.into_children();
+        //     [octal_byte_value(c)] => c,
+        //     [hex_byte_value(c)] => c,
+        // ))
     }
-    fn Interpolation(input: Node) -> Result<ast::Expr> {
+    fn Interpolation(input: Pair<Rule>) -> Result<ast::Expr, &str> {
         // println!("Iterpolation: {:?}", input.as_str());
         CUEParser::Expression(input.into_children().single()?)
     }
-    fn String(input: Node) -> Result<ast::Interpolation> {
+    fn String(input: Pair<Rule>) -> Result<ast::Interpolation, &str> {
+        todo!()
         // println!("String: {:?}", input.as_str());
-        Ok(match_nodes!(input.into_children();
-            [SimpleString(s)] => s,
-            [MultilineString(s)] => s,
-            [SimpleBytes(s)] => s,
-            [MultilineBytes(s)] => s))
+        // Ok(match_nodes!(input.into_children();
+        //     [SimpleString(s)] => s,
+        //     [MultilineString(s)] => s,
+        //     [SimpleBytes(s)] => s,
+        //     [MultilineBytes(s)] => s))
     }
-    fn SimpleString(input: Node) -> Result<ast::Interpolation> {
+    fn SimpleString(input: Pair<Rule>) -> Result<ast::Interpolation, &str> {
         // println!("SimpleString: {:?}", input);
         Ok(ast::Interpolation {
             is_bytes: false,
             elements: interpolation_elements(input)?,
         })
     }
-    fn SimpleBytes(input: Node) -> Result<ast::Interpolation> {
+    fn SimpleBytes(input: Pair<Rule>) -> Result<ast::Interpolation, &str> {
         // println!("SimpleBytes: {:?}", input);
         Ok(ast::Interpolation {
             is_bytes: true,
             elements: interpolation_elements(input)?,
         })
     }
-    fn MultilineString(input: Node) -> Result<ast::Interpolation> {
+    fn MultilineString(input: Pair<Rule>) -> Result<ast::Interpolation, &str> {
         // println!("MultilineString: {:?}", input);
         Ok(ast::Interpolation {
             is_bytes: false,
             elements: interpolation_elements(input)?,
         })
     }
-    fn MultilineBytes(input: Node) -> Result<ast::Interpolation> {
+    fn MultilineBytes(input: Pair<Rule>) -> Result<ast::Interpolation, &str> {
         // println!("MultilineBytes: {:?}", input);
         Ok(ast::Interpolation {
             is_bytes: true,
             elements: interpolation_elements(input)?,
         })
     }
-    fn bottom_lit(input: Node) -> Result<()> {
+    fn bottom_lit(input: Pair<Rule>) -> Result<(), &str> {
         Ok(())
     }
-    fn null_lit(input: Node) -> Result<()> {
+    fn null_lit(input: Pair<Rule>) -> Result<(), &str> {
         Ok(())
     }
-    fn bool_lit(input: Node) -> Result<bool> {
+    fn bool_lit(input: Pair<Rule>) -> Result<bool, &str> {
         match input.as_str() {
             "true" => Ok(true),
             "false" => Ok(false),
             _ => unreachable!(),
         }
     }
-    fn StructLit(input: Node) -> Result<ast::StructLit> {
+    fn StructLit(input: Pair<Rule>) -> Result<ast::StructLit, &str> {
         Ok(ast::StructLit {
             elements: input
                 .into_children()
@@ -218,189 +218,223 @@ impl CUEParser {
                 .try_collect()?,
         })
     }
-    fn Declaration(input: Node) -> Result<ast::Declaration> {
-        Ok(match_nodes!(input.into_children();
-            [Field(f)] => ast::Declaration::Field(f),
-            [Ellipsis(e)] => ast::Declaration::Ellipsis(e),
-            [Embedding(e)] => ast::Declaration::Embedding(e),
-            [attribute(e)] => ast::Declaration::Attribute(e),
-        ))
+    fn Declaration(input: Pair<Rule>) -> Result<ast::Declaration, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [Field(f)] => ast::Declaration::Field(f),
+        //     [Ellipsis(e)] => ast::Declaration::Ellipsis(e),
+        //     [Embedding(e)] => ast::Declaration::Embedding(e),
+        //     [attribute(e)] => ast::Declaration::Attribute(e),
+        // ))
     }
-    fn Ellipsis(input: Node) -> Result<ast::Ellipsis> {
+    fn Ellipsis(input: Pair<Rule>) -> Result<ast::Ellipsis, &str> {
         Ok(ast::Ellipsis {
             inner: CUEParser::Expression(input.into_children().single()?)?,
         })
     }
-    fn Embedding(input: Node) -> Result<ast::Expr> {
-        Ok(match_nodes!(input.into_children();
-            [Comprehension(c)] => ast::Expr::Comprehension(Box::new(c)),
-            [AliasExpr(a)] => a,
-        ))
+    fn Embedding(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [Comprehension(c)] => ast::Expr::Comprehension(Box::new(c)),
+        //     [AliasExpr(a)] => a,
+        // ))
     }
-    fn Field(input: Node) -> Result<ast::Field> {
-        match_nodes!(input.into_children();
-        [Labels(mut ls), AliasExpr(value), attribute(attributes)..] => {
-            let mut lsi = ls.iter_mut();
-            let init = ast::Field {
-                label: lsi.next().expect("nonempty list").clone(),
-                value: value,
-                attributes: {
-                    let collected: Vec<_> = attributes.collect();
-                    match collected.len() {
-                        0 => None,
-                        _ => Some(collected)
-                    }
-                },
-            };
-            return Ok(lsi.rfold(init, |acc, label| ast::Field {
-                label: label.clone(),
-                value: ast::Expr::Struct(ast::StructLit {
-                    elements: vec![ast::Declaration::Field(acc)],
-                }),
-                attributes: None,
-            }));
-        })
+    fn Field(input: Pair<Rule>) -> Result<ast::Field, &str> {
+        todo!()
+        // match_nodes!(input.into_children();
+        // [Labels(mut ls), AliasExpr(value), attribute(attributes)..] => {
+        //     let mut lsi = ls.iter_mut();
+        //     let init = ast::Field {
+        //         label: lsi.next().expect("nonempty list").clone(),
+        //         value: value,
+        //         attributes: {
+        //             let collected: Vec<_> = attributes.collect();
+        //             match collected.len() {
+        //                 0 => None,
+        //                 _ => Some(collected)
+        //             }
+        //         },
+        //     };
+        //     return Ok(lsi.rfold(init, |acc, label| ast::Field {
+        //         label: label.clone(),
+        //         value: ast::Expr::Struct(ast::StructLit {
+        //             elements: vec![ast::Declaration::Field(acc)],
+        //         }),
+        //         attributes: None,
+        //     }));
+        // })
     }
-    fn Labels(input: Node) -> Result<Vec<ast::Label>> {
-        Ok(match_nodes!(input.into_children();
-            [Label(labels)..] => labels.collect()))
+    fn Labels(input: Pair<Rule>) -> Result<Vec<ast::Label>, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [Label(labels)..] => labels.collect()))
     }
-    fn Label(input: Node) -> Result<ast::Label> {
-        Ok(match_nodes!(input.into_children();
-            [LabelName(n)] => n,
-            [Expression(e)] => ast::Label::Paren(e),
-            [AliasExpr(a)] => ast::Label::Bracket(a),
-        ))
+    fn Label(input: Pair<Rule>) -> Result<ast::Label, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [LabelName(n)] => n,
+        //     [Expression(e)] => ast::Label::Paren(e),
+        //     [AliasExpr(a)] => ast::Label::Bracket(a),
+        // ))
     }
-    fn LabelName(input: Node) -> Result<ast::Label> {
-        Ok(match_nodes!(input.into_children();
-            [identifier(i)] => ast::Label::Ident(i),
-            [SimpleString(s)] => ast::Label::Basic(s)
-        ))
+    fn LabelName(input: Pair<Rule>) -> Result<ast::Label, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [identifier(i)] => ast::Label::Ident(i),
+        //     [SimpleString(s)] => ast::Label::Basic(s)
+        // ))
     }
-    fn attribute(input: Node) -> Result<ast::Attribute> {
+    fn attribute(input: Pair<Rule>) -> Result<ast::Attribute, &str> {
         Ok(ast::Attribute {
             text: input.as_str().to_string(),
         })
     }
-    fn attr_tokens(input: Node) -> Result<()> {
+    fn attr_tokens(input: Pair<Rule>) -> Result<(), &str> {
         Err(input.error("attr_tokens should be unreachable"))
     }
-    fn attr_token(input: Node) -> Result<()> {
+    fn attr_token(input: Pair<Rule>) -> Result<(), &str> {
         Err(input.error("attr_token should be unreachable"))
     }
-    fn AliasExpr(input: Node) -> Result<ast::Expr> {
-        Ok(match_nodes!(input.into_children();
-            [identifier(ident), Expression(expr)] => ast::Expr::alias(ident, expr),
-            [Expression(expr)] => expr
-        ))
+    fn AliasExpr(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [identifier(ident), Expression(expr)] => ast::Expr::alias(ident, expr),
+        //     [Expression(expr)] => expr
+        // ))
     }
-    fn ListLit(input: Node) -> Result<ast::ListLit> {
+    fn ListLit(input: Pair<Rule>) -> Result<ast::ListLit, &str> {
         Ok(ast::ListLit {
             elements: CUEParser::ElementList(input.into_children().single()?)?,
         })
     }
-    fn ElementList(input: Node) -> Result<Vec<ast::Expr>> {
-        Ok(match_nodes!(input.into_children();
-        [Ellipsis(e)] => vec![ast::Expr::Ellipsis(Box::new(e))],
-        [Embedding(e)..] => e.collect(),
-        [Embedding(em).., Ellipsis(el)] => {
-            let mut res: Vec<_> = em.collect();
-            res.push(ast::Expr::Ellipsis(Box::new(el)));
-            res
-        }))
+    fn ElementList(input: Pair<Rule>) -> Result<Vec<ast::Expr>, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        // [Ellipsis(e)] => vec![ast::Expr::Ellipsis(Box::new(e))],
+        // [Embedding(e)..] => e.collect(),
+        // [Embedding(em).., Ellipsis(el)] => {
+        //     let mut res: Vec<_> = em.collect();
+        //     res.push(ast::Expr::Ellipsis(Box::new(el)));
+        //     res
+        // }))
     }
-    fn Literal(input: Node) -> Result<ast::Expr> {
-        Ok(match_nodes!(input.into_children();
-            [BasicLit(b)] => ast::Expr::BasicLit(b),
-            [ListLit(l)] => ast::Expr::List(l),
-            [StructLit(s)] => ast::Expr::Struct(s)))
+    fn Literal(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [BasicLit(b)] => ast::Expr::BasicLit(b),
+        //     [ListLit(l)] => ast::Expr::List(l),
+        //     [StructLit(s)] => ast::Expr::Struct(s)))
     }
-    fn Operand(input: Node) -> Result<ast::Expr> {
-        Ok(match_nodes!(input.into_children();
-            [Literal(l)] => l,
-            [OperandName(o)] => o,
-            [Expression(e)] => ast::Expr::parens(e)))
+    fn Operand(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [Literal(l)] => l,
+        //     [OperandName(o)] => o,
+        //     [Expression(e)] => ast::Expr::parens(e)))
     }
-    fn BasicLit(input: Node) -> Result<ast::BasicLit> {
-        match_nodes!(input.into_children();
-            [int_lit(l)] => Ok(ast::BasicLit::Int(l)),
-            [float_lit(l)] => Ok(ast::BasicLit::Float(l)),
-            [bool_lit(l)] => Ok(ast::BasicLit::Bool(l)),
-            [null_lit(_)] => Ok(ast::BasicLit::Null),
-            [bottom_lit(_)] => Ok(ast::BasicLit::Bottom),
-        )
+    fn BasicLit(input: Pair<Rule>) -> Result<ast::BasicLit, &str> {
+        todo!()
+        // match_nodes!(input.into_children();
+        //     [int_lit(l)] => Ok(ast::BasicLit::Int(l)),
+        //     [float_lit(l)] => Ok(ast::BasicLit::Float(l)),
+        //     [bool_lit(l)] => Ok(ast::BasicLit::Bool(l)),
+        //     [null_lit(_)] => Ok(ast::BasicLit::Null),
+        //     [bottom_lit(_)] => Ok(ast::BasicLit::Bottom),
+        // )
     }
-    fn OperandName(input: Node) -> Result<ast::Expr> {
-        Ok(match_nodes!(input.into_children();
-            [identifier(i)] => ast::Expr::Ident(i),
-            [QualifiedIdent(qi)] => qi))
+    fn OperandName(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [identifier(i)] => ast::Expr::Ident(i),
+        //     [QualifiedIdent(qi)] => qi))
     }
-    fn QualifiedIdent(input: Node) -> Result<ast::Expr> {
-        Ok(match_nodes!(input.into_children();
-            [PackageName(p), identifier(i)] => ast::Expr::QualifiedIdent(p, i)))
+    fn QualifiedIdent(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [PackageName(p), identifier(i)] => ast::Expr::QualifiedIdent(p, i)))
     }
-    fn Selector(input: Node) -> Result<ast::Label> {
-        Ok(match_nodes!(input.into_children();
-            [identifier(i)] => ast::Label::Ident(i),
-            [SimpleString(s)] => ast::Label::Basic(s)))
+    fn Selector(input: Pair<Rule>) -> Result<ast::Label, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [identifier(i)] => ast::Label::Ident(i),
+        //     [SimpleString(s)] => ast::Label::Basic(s)))
     }
-    fn Index(input: Node) -> Result<ast::Expr> {
+    fn Index(input: Pair<Rule>) -> Result<ast::Expr, &str> {
         CUEParser::Expression(input.into_children().single()?)
     }
-    fn Slice(input: Node) -> Result<(ast::Expr, ast::Expr)> {
-        Ok(match_nodes!(input.into_children();
-            [Expression(low), Expression(high)] => (low, high)))
+    fn Slice(input: Pair<Rule>) -> Result<(ast::Expr, ast::Expr), &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [Expression(low), Expression(high)] => (low, high)))
     }
-    fn Argument(input: Node) -> Result<ast::Expr> {
+    fn Argument(input: Pair<Rule>) -> Result<ast::Expr, &str> {
         CUEParser::Expression(input.into_children().single()?)
     }
-    fn Arguments(input: Node) -> Result<Vec<ast::Expr>> {
-        Ok(match_nodes!(input.into_children();
-            [Argument(a)..] => a.collect()))
+    fn Arguments(input: Pair<Rule>) -> Result<Vec<ast::Expr>, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [Argument(a)..] => a.collect()))
     }
-    fn PrimaryExpr(input: Node) -> Result<ast::Expr> {
-        match_nodes!(input.into_children();
-        [Operand(o)] => Ok(o),
-        [Operand(o), items] => {
-            let mut current_expr = o;
-            for item in items.into_children() {
-                current_expr = match item.as_rule() {
-                    Rule::Selector => ast::Expr::selector(current_expr, CUEParser::Selector(item)?),
-                    Rule::Index => ast::Expr::index(current_expr, CUEParser::Index(item)?),
-                    Rule::Slice => {
-                        let (low, high) = CUEParser::Slice(item)?;
-                        ast::Expr::slice(current_expr, low, high)
-                    },
-                    Rule::Arguments => ast::Expr::call(current_expr, CUEParser::Arguments(item)?),
-                    x => unreachable!("unexpected primary expr rule {:?}", x)
-                }
-            }
+    fn PrimaryExpr(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+        todo!()
+        // match_nodes!(input.into_children();
+        // [Operand(o)] => Ok(o),
+        // [Operand(o), items] => {
+        //     let mut current_expr = o;
+        //     for item in items.into_children() {
+        //         current_expr = match item.as_rule() {
+        //             Rule::Selector => ast::Expr::selector(current_expr, CUEParser::Selector(item)?),
+        //             Rule::Index => ast::Expr::index(current_expr, CUEParser::Index(item)?),
+        //             Rule::Slice => {
+        //                 let (low, high) = CUEParser::Slice(item)?;
+        //                 ast::Expr::slice(current_expr, low, high)
+        //             },
+        //             Rule::Arguments => ast::Expr::call(current_expr, CUEParser::Arguments(item)?),
+        //             x => unreachable!("unexpected primary expr rule {:?}", x)
+        //         }
+        //     }
 
-            Ok(current_expr)
-        })
+        //     Ok(current_expr)
+        // })
     }
-    fn UnaryExpr(input: Node) -> Result<ast::Expr> {
-        Ok(match_nodes!(input.into_children();
-        [PrimaryExpr(p)] => p,
-        [unary_op(op), Expression(child)] => ast::Expr::unary_expr(op, child)))
-    }
-    fn Expression(input: Node) -> Result<ast::Expr> {
-        let infix = |lhs, op, rhs| {
-            Ok(ast::Expr::binary_expr(
-                lhs?,
-                binary_op(Node::new(op))?,
-                rhs?,
-            ))
-        };
+    // fn UnaryExpr(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+    //     Ok(match_nodes!(input.into_children();
+    //     [PrimaryExpr(p)] => p,
+    //     [unary_op(op), Expression(child)] => ast::Expr::unary_expr(op, child)))
+    // }
+    fn Expression(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+        PRATT
+            .map_primary(|primary| match primary.as_rule() {
+                Rule::PrimaryExpr => CUEParser::PrimaryExpr(Node::new(primary)),
+            })
+            .map_prefix(|prefix, rhs| {
+                let op = match prefix.as_rule() {
+                Rule::not_op => ast::Operator::Not,
+                Rule::rel_op => CUEParser::rel_op(input)?,
+                Rule::add_op => CUEParser::add_op(input)?,
+                Rule::mul_op => ast::Operator::Multiply,
+                x => unreachable!("unknown prefix {:?}", x),
+            };
+            return Ok(ast::Expr::UnaryExpr(ast::UnaryExpr{
+                op: op,
+                child: Box::new(rhs?),
+            }));
+            }).parse()
 
-        PRECCLIMBER.climb(
-            input.into_children().into_pairs(),
-            |p| CUEParser::UnaryExpr(Node::new(p)),
-            infix,
-        )
+        // let infix = |lhs, op, rhs| {
+        //     Ok(ast::Expr::binary_expr(
+        //         lhs?,
+        //         binary_op(Node::new(op))?,
+        //         rhs?,
+        //     ))
+        // };
+        // PRATT.climb(
+        //     input.into_children().into_pairs(),
+        //     |p| CUEParser::UnaryExpr(Node::new(p)),
+        //     infix,
+        // )
     }
-    fn rel_op(input: Node) -> Result<ast::Operator> {
+    fn rel_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
         match input.as_str() {
             "!=" => Ok(ast::Operator::NotEqual),
             "<" => Ok(ast::Operator::Less),
@@ -412,112 +446,120 @@ impl CUEParser {
             x => unreachable!("rel_op {}", x),
         }
     }
-    fn add_op(input: Node) -> Result<ast::Operator> {
+    fn add_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
         match input.as_str() {
             "+" => Ok(ast::Operator::Add),
             "-" => Ok(ast::Operator::Subtract),
             x => unreachable!("add_op {}", x),
         }
     }
-    fn mul_op(input: Node) -> Result<ast::Operator> {
+    fn mul_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
         match input.as_str() {
             "*" => Ok(ast::Operator::Multiply),
             "-" => Ok(ast::Operator::Divide),
             x => unreachable!("mul_op {}", x),
         }
     }
-    fn unary_op(input: Node) -> Result<ast::Operator> {
-        match input.as_rule() {
-            Rule::rel_op => CUEParser::rel_op(input),
-            Rule::add_op => CUEParser::add_op(input),
-            Rule::unary_op => match input.as_str() {
-                "!" => Ok(ast::Operator::Not),
-                "*" => Ok(ast::Operator::Multiply),
-                x => unreachable!("unary_op {}", x),
-            },
-            x => unreachable!("unary_op {:?}", x),
-        }
+    // fn unary_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
+    //     match input.as_rule() {
+    //         Rule::rel_op => CUEParser::rel_op(input),
+    //         Rule::add_op => CUEParser::add_op(input),
+    //         Rule::unary_op => match input.as_str() {
+    //             "!" => Ok(ast::Operator::Not),
+    //             "*" => Ok(ast::Operator::Multiply),
+    //             x => unreachable!("unary_op {}", x),
+    //         },
+    //         x => unreachable!("unary_op {:?}", x),
+    //     }
+    // }
+    fn Comprehension(input: Pair<Rule>) -> Result<ast::Comprehension, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        // [Clauses(clauses), StructLit(s)] => ast::Comprehension {
+        //     clauses, expr: ast::Expr::Struct(s)
+        // }))
     }
-    fn Comprehension(input: Node) -> Result<ast::Comprehension> {
-        Ok(match_nodes!(input.into_children();
-        [Clauses(clauses), StructLit(s)] => ast::Comprehension {
-            clauses, expr: ast::Expr::Struct(s)
-        }))
+    fn Clauses(input: Pair<Rule>) -> Result<Vec<ast::Clause>, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        // [StartClause(sc)] => vec![sc],
+        // [StartClause(sc), Clause(cs)..] => {
+        //     let mut clauses = vec![sc];
+        //     clauses.extend(cs);
+        //     clauses
+        // }))
     }
-    fn Clauses(input: Node) -> Result<Vec<ast::Clause>> {
-        Ok(match_nodes!(input.into_children();
-        [StartClause(sc)] => vec![sc],
-        [StartClause(sc), Clause(cs)..] => {
-            let mut clauses = vec![sc];
-            clauses.extend(cs);
-            clauses
-        }))
+    fn StartClause(input: Pair<Rule>) -> Result<ast::Clause, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [ForClause(fc)] => fc,
+        //     [GuardClause(gc)] => gc))
     }
-    fn StartClause(input: Node) -> Result<ast::Clause> {
-        Ok(match_nodes!(input.into_children();
-            [ForClause(fc)] => fc,
-            [GuardClause(gc)] => gc))
+    fn Clause(input: Pair<Rule>) -> Result<ast::Clause, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [StartClause(sc)] => sc,
+        //     [LetClause(lc)] => lc))
     }
-    fn Clause(input: Node) -> Result<ast::Clause> {
-        Ok(match_nodes!(input.into_children();
-            [StartClause(sc)] => sc,
-            [LetClause(lc)] => lc))
+    fn ForClause(input: Pair<Rule>) -> Result<ast::Clause, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        // [identifier(key), identifier(value), Expression(source)] => ast::Clause::For {
+        //     key: Some(key),
+        //     value,
+        //     source
+        // },
+        // [identifier(value), Expression(source)] => ast::Clause::For {
+        //     key:None,
+        //     value,
+        //     source
+        // }))
     }
-    fn ForClause(input: Node) -> Result<ast::Clause> {
-        Ok(match_nodes!(input.into_children();
-        [identifier(key), identifier(value), Expression(source)] => ast::Clause::For {
-            key: Some(key),
-            value,
-            source
-        },
-        [identifier(value), Expression(source)] => ast::Clause::For {
-            key:None,
-            value,
-            source
-        }))
-    }
-    fn GuardClause(input: Node) -> Result<ast::Clause> {
+    fn GuardClause(input: Pair<Rule>) -> Result<ast::Clause, &str> {
         Ok(ast::Clause::If(CUEParser::Expression(
             input.into_children().single()?,
         )?))
     }
-    fn LetClause(input: Node) -> Result<ast::Clause> {
-        Ok(match_nodes!(input.into_children();
-        [identifier(i), Expression(e)] => ast::Clause::Let(ast::LetClause {
-            alias: i,
-            value: e
-        })))
+    fn LetClause(input: Pair<Rule>) -> Result<ast::Clause, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        // [identifier(i), Expression(e)] => ast::Clause::Let(ast::LetClause {
+        //     alias: i,
+        //     value: e
+        // })))
     }
-    fn PackageClause(input: Node) -> Result<ast::Ident> {
+    fn PackageClause(input: Pair<Rule>) -> Result<ast::Ident, &str> {
         CUEParser::PackageName(input.into_children().single()?)
     }
-    fn PackageName(input: Node) -> Result<ast::Ident> {
+    fn PackageName(input: Pair<Rule>) -> Result<ast::Ident, &str> {
         CUEParser::identifier(input.into_children().single()?)
     }
-    fn ImportDecl(input: Node) -> Result<ast::Declaration> {
+    fn ImportDecl(input: Pair<Rule>) -> Result<ast::Declaration, &str> {
         input
             .into_children()
             .map(|i| CUEParser::ImportSpec(i))
             .try_collect()
             .map(|specs| ast::Declaration::ImportDecl(specs))
     }
-    fn ImportSpec(input: Node) -> Result<ast::ImportSpec> {
-        Ok(match_nodes!(input.into_children();
-        [PackageName(alias), ImportPath((path, package))] => ast::ImportSpec {
-            alias,
-            path,
-            package,
-        }))
+    fn ImportSpec(input: Pair<Rule>) -> Result<ast::ImportSpec, &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        // [PackageName(alias), ImportPath((path, package))] => ast::ImportSpec {
+        //     alias,
+        //     path,
+        //     package,
+        // }))
     }
-    fn ImportLocation(input: Node) -> Result<ast::BasicLit> {
+    fn ImportLocation(input: Pair<Rule>) -> Result<ast::BasicLit, &str> {
         Ok(ast::BasicLit::String(input.as_str().to_string()))
     }
-    fn ImportPath(input: Node) -> Result<(ast::BasicLit, Option<ast::Ident>)> {
-        Ok(match_nodes!(input.into_children();
-            [ImportLocation(path)] => (path, None),
-            [ImportLocation(path), identifier(package)] => (path, Some(package))))
+    fn ImportPath(input: Pair<Rule>) -> Result<(ast::BasicLit, Option<ast::Ident>), &str> {
+        todo!()
+        // Ok(match_nodes!(input.into_children();
+        //     [ImportLocation(path)] => (path, None),
+        //     [ImportLocation(path), identifier(package)] => (path, Some(package))))
     }
-    fn SourceFile(input: Node) -> Result<ast::SourceFile> {
+    fn SourceFile(input: Pair<Rule>) -> Result<ast::SourceFile, &str> {
         let children = input.into_children();
 
         Ok(ast::SourceFile {
@@ -549,18 +591,18 @@ impl CUEParser {
                 .collect(),
         })
     }
-    fn WHITESPACE(input: Node) -> Result<()> {
+    fn WHITESPACE(input: Pair<Rule>) -> Result<(), &str> {
         Ok(())
     }
-    fn COMMENT(input: Node) -> Result<()> {
+    fn COMMENT(input: Pair<Rule>) -> Result<(), &str> {
         Ok(())
     }
-    fn EOI(_input: Node) -> Result<()> {
+    fn EOI(_input: Pair<Rule>) -> Result<(), &str> {
         Ok(())
     }
 }
 
-fn interpolation_elements(input: Node) -> Result<Vec<ast::Expr>> {
+fn interpolation_elements(input: Pair<Rule>) -> Result<Vec<ast::Expr>, &str> {
     let mut current_str = String::new();
     let mut string_parts = vec![];
     let mut expr_parts = vec![];
@@ -614,7 +656,7 @@ fn interpolation_elements(input: Node) -> Result<Vec<ast::Expr>> {
         .collect());
 }
 
-fn parse_digits_radix(input: Node, radix: u32) -> Result<char> {
+fn parse_digits_radix(input: Pair<Rule>, radix: u32) -> char {
     let escape = input.clone().into_pair().into_inner().as_str();
     let digits = input.as_str().trim_start_matches(escape);
     match u32::from_str_radix(digits, radix) {
@@ -626,7 +668,7 @@ fn parse_digits_radix(input: Node, radix: u32) -> Result<char> {
     }
 }
 
-fn binary_op(input: Node) -> Result<ast::Operator> {
+fn binary_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
     match input.as_rule() {
         Rule::rel_op => CUEParser::rel_op(input),
         Rule::add_op => CUEParser::add_op(input),

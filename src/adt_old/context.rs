@@ -13,11 +13,11 @@ use crate::ast;
 pub type ReflectType = usize;
 
 pub trait Runtime: StringIndexer {
-    fn load_import(&self, importPath: &str) -> &Vertex;
+    fn load_import(&self, import_path: &str) -> &Vertex;
     fn store_type(&self, t: ReflectType, src: ast::Expr, expr: Box<dyn Expr>);
     fn load_type(&self, t: ReflectType) -> (ast::Expr, Box<dyn Expr>, bool);
 }
-
+#[allow(dead_code)]
 pub struct OpContext {
     runtime: Box<dyn Runtime>,
     format: Box<dyn Fn(dyn Node) -> String>,

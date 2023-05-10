@@ -1,6 +1,5 @@
 use core::panic;
 use std::{
-    cell::RefCell,
     cmp::Ordering,
     fmt::Debug,
     rc::{Rc, Weak},
@@ -10,20 +9,20 @@ use std::{
 
 use super::op::Op;
 
+#[allow(dead_code)]
 pub struct Vertex {
     parent: Box<Vertex>,
 
     value: Value,
 }
 
+#[allow(dead_code)]
 pub struct Struct {
     parent: Box<Struct>,
     closed: bool,
 
     fields: Vec<Field>,
 }
-
-pub type ValueRef = Rc<RefCell<Value>>;
 
 #[derive(Debug, Clone)]
 pub enum Value {

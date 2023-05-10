@@ -113,12 +113,18 @@ Arguments      = { "(" ~ ( ( Argument ~ ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
 
 PrimaryExpr = { Operand ~ (Selector | Index | Slice | Arguments )* }
 
-UnaryExpr  = { PrimaryExpr | ( unary_op ~ UnaryExpr ) }
+
+// UnaryExpr  = { PrimaryExpr | ( unary_op ~ UnaryExpr ) }
 // Expression = { UnaryExpr | ( Expression ~ binary_op ~ Expression ) }
-Expression = { UnaryExpr ~ (binary_op ~ UnaryExpr)* }
+// Expression = { UnaryExpr ~ (binary_op ~ UnaryExpr)* }
 
+Expression =   { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix* )* }
+infix    =  _{ disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op }
+prefix   =  _{ not_op | mul_op | rel_op | add_op }
+postfix  =  _{ "^" }
+primary  =  _{ PrimaryExpr }
 
-binary_op   = _{ disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op  }
+// binary_op   = _{ disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op  }
 disjunct_op = { "|" }
 conjuct_op  = { "&" }
 or_op       = { "||" }
@@ -127,7 +133,8 @@ equal_op    = { "==" }
 rel_op      = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
 add_op      = { "+" | "-" }
 mul_op      = { "*" | "/" }
-unary_op    = { "!" | "*" | rel_op | add_op }
+not_op      = { "!" }
+// unary_op    = { not_op | mul_op | rel_op | add_op }
 
 Comprehension = { Clauses ~ StructLit }
 
@@ -146,7 +153,7 @@ ImportSpec     = { PackageName? ~ ImportPath }
 ImportLocation = { unicode_value* }
 ImportPath     = { PUSH("\"") ~ ImportLocation ~ (":" ~ identifier)? ~ POP }
 
-SourceFile = { SOI 
+SourceFile = { SOI
              ~ (attribute ~ ",")*
              ~ (PackageClause)?
              ~ (ImportDecl)*

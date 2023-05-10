@@ -10,12 +10,12 @@ use super::{
     expr::StructLit,
     feature::Feature,
 };
-
+#[allow(dead_code)]
 pub struct Environment {
     up: Box<Environment>,
     vertex: Box<Vertex>,
 
-    dynamicLabel: Feature,
+    dynamic_label: Feature,
 
     cyclic: bool,
 
@@ -25,6 +25,7 @@ pub struct Environment {
 
     cache: HashMap<Box<dyn Expr>, Box<dyn Value>>,
 }
+#[allow(dead_code)]
 pub struct Vertex {
     node: Box<dyn ast::Node>,
 
@@ -43,7 +44,7 @@ pub struct Vertex {
     conjuncts: Vec<Conjunct>,
     structs: Vec<StructInfo>,
 }
-
+#[allow(dead_code)]
 pub enum VertexStatus {
     Unprocessed,
     Evaluating,
@@ -52,7 +53,7 @@ pub enum VertexStatus {
     EvaluatingArcs,
     Finalized,
 }
-
+#[allow(dead_code)]
 enum ArcType {
     ArcMember,
     ArcVoid,
@@ -65,6 +66,7 @@ pub enum OptionalType {
     HasAdditional,     // ...T
     IsOpen,            // Defined for all fields
 }
+#[allow(dead_code)]
 pub struct StructInfo {
     struct_lit: StructLit,
     close_info: CloseInfo,
@@ -73,7 +75,7 @@ pub struct StructInfo {
     disable: bool,
     embedding: bool,
 }
-
+#[allow(dead_code)]
 pub struct Conjunct {
     env: Box<Environment>,
     x: Box<dyn Node>,

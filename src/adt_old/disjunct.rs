@@ -9,7 +9,7 @@ pub enum DefaultMode {
     IsDefault,
     NotDefault,
 }
-
+#[allow(dead_code)]
 pub struct EnvDisjunct {
     env: Box<Environment>,
     clone_id: CloseInfo,

@@ -1,6 +1,4 @@
-use std::cmp::Ordering;
 
-use super::op::Op;
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
 pub enum Kind {

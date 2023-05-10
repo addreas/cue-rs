@@ -1,5 +1,5 @@
 use super::adt::Node;
-
+#[allow(dead_code)]
 pub struct CloseStats {
     generation: usize,
 
@@ -11,25 +11,26 @@ pub struct CloseStats {
     required: bool,
     next: Box<CloseStats>,
 }
+#[allow(dead_code)]
 pub struct CloseInfo {
     location: Box<dyn Node>,
 
     parent: Box<CloseInfo>,
 
-    mode: closeNodeType,
+    mode: CloseNodeType,
 
     no_check: bool,
 
     root: SpanType,
     span: SpanType,
 }
-
-enum closeNodeType {
-    closeRef,
-    closeDef,
-    closeEmbed,
+#[allow(dead_code)]
+enum CloseNodeType {
+    CloseRef,
+    CloseDef,
+    CloseEmbed,
 }
-
+#[allow(dead_code)]
 enum SpanType {
     EmbeddingSpan,
     ConstraintSpan,
