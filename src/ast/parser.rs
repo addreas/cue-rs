@@ -1,5 +1,6 @@
 use std::vec;
 use std::result::Result;
+use pest::Parser;
 use pest::{pratt_parser::{Assoc, Op, PrattParser}, iterators::Pair};
 
 
@@ -27,28 +28,28 @@ lazy_static::lazy_static! {
 
 // This is the other half of the parser, using pest_consume.
 impl CUEParser {
-    fn identifier(input: Pair<Rule>) -> Result<ast::Ident, &str> {
-        Ok(ast::Ident { name: input.as_str().to_string()})
+    fn identifier(input: Pair<Rule>) -> ast::Ident {
+        ast::Ident { name: input.as_str().to_string()}
     }
-    fn unicode_char(input: Pair<Rule>) -> Result<char, &str> {
+    fn unicode_char(input: Pair<Rule>) -> Result<char, String> {
         input
             .as_str()
             .chars()
             .next()
-            .map_or(Err("no first char in str"), |c| Ok(c))
+            .map_or(Err("no first char in str".to_string()), |c| Ok(c))
     }
-    fn decimal_lit(input: Pair<Rule>) -> Result<i64, &str> {
+    fn decimal_lit(input: Pair<Rule>) -> Result<i64, String> {
         input
             .as_str()
             .replace("_", "")
             .as_str()
             .parse()
-            .map_err(|e| input.error(format!("decimal_lit: {}: {}", input.as_str(), e)))
+            .map_err(|e| format!("decimal_lit: {:?}: {}", input, e))
     }
-    fn fraction(input: Pair<Rule>) -> Result<f64, &str> {
+    fn fraction(input: Pair<Rule>) -> Result<f64, String> {
         ("0.".to_owned() + input.as_str().replace("_", "").as_str())
             .parse()
-            .map_err(|e| input.error(format!("fraction: {}: {}", input.as_str(), e)))
+            .map_err(|e| format!("fraction: {:?}: {}", input, e))
     }
     fn si_lit(input: Pair<Rule>) -> Result<i64, &str> {
         todo!()
@@ -57,19 +58,19 @@ impl CUEParser {
         //     [decimal_lit(a),              multiplier(m)] => ((a             * m) as f64) as i64,
         //     [                fraction(b), multiplier(m)] => (            b  * m  as f64) as i64))
     }
-    fn binary_lit(input: Pair<Rule>) -> Result<i64, &str> {
+    fn binary_lit(input: Pair<Rule>) -> Result<i64, String> {
         i64::from_str_radix(input.as_str(), 2)
-            .map_err(|e| input.error(format!("binary_lit: {}: {}", input.as_str(), e)))
+            .map_err(|e| format!("binary_lit: {:?}: {}", input, e))
     }
-    fn octal_lit(input: Pair<Rule>) -> Result<i64, &str> {
+    fn octal_lit(input: Pair<Rule>) -> Result<i64, String> {
         i64::from_str_radix(input.as_str(), 8)
-            .map_err(|e| input.error(format!("octal_lit: {}: {}", input.as_str(), e)))
+            .map_err(|e| format!("octal_lit: {:?}: {}", input, e))
     }
-    fn hex_lit(input: Pair<Rule>) -> Result<i64, &str> {
+    fn hex_lit(input: Pair<Rule>) -> Result<i64, String> {
         i64::from_str_radix(input.as_str(), 16)
-            .map_err(|e| input.error(format!("hex_lit: {}: {}", input.as_str(), e)))
+            .map_err(|e| format!("hex_lit: {:?}: {}", input, e))
     }
-    fn multiplier(input: Pair<Rule>) -> Result<i64, &str> {
+    fn multiplier(input: Pair<Rule>) -> Result<i64, String> {
         match input.as_str() {
             "K" => Ok(i64::pow(10, 3)),
             "M" => Ok(i64::pow(10, 6)),
@@ -81,7 +82,7 @@ impl CUEParser {
             "Gi" => Ok(i64::pow(2, 30)),
             "Ti" => Ok(i64::pow(2, 40)),
             "Pi" => Ok(i64::pow(2, 50)),
-            _ => Err(input.error(format!("unknown multiplier: {}", input.as_str()))),
+            _ => Err(format!("unknown multiplier: {}", input.as_str())),
         }
     }
     fn exponent(input: Pair<Rule>) -> Result<i32, &str> {
@@ -108,7 +109,7 @@ impl CUEParser {
         //     [                fraction(b)             ] =>             b,
         // ))
     }
-    fn escaped_char(input: Pair<Rule>) -> Result<char, &str> {
+    fn escaped_char(input: Pair<Rule>) -> Result<char, String> {
         // println!("escaped_char: {:?}", input.as_str());
         match input.as_str().chars().last() {
             Some('a') => Ok('\u{0007}'),
@@ -119,26 +120,26 @@ impl CUEParser {
             Some('t') => Ok('\t'),
             Some('v') => Ok('\u{000b}'),
             Some(x) => Ok(x),
-            x => Err(input.error(format!("escaped_char: unknown escape char {:?}", x))),
+            x => Err(format!("escaped_char: unknown escape char {}: {:?}", x, input)),
         }
     }
-    fn octal_byte_value(input: Pair<Rule>) -> Result<char, &str> {
+    fn octal_byte_value(input: Pair<Rule>) -> Result<char, String> {
         // println!("octal_byte_value: {:?}", input.as_str());
         parse_digits_radix(input, 8)
     }
-    fn hex_byte_value(input: Pair<Rule>) -> Result<char, &str> {
+    fn hex_byte_value(input: Pair<Rule>) -> Result<char, String> {
         // println!("hex_byte_value: {:?}", input.as_str());
         parse_digits_radix(input, 16)
     }
-    fn little_u_value(input: Pair<Rule>) -> Result<char, &str> {
+    fn little_u_value(input: Pair<Rule>) -> Result<char, String> {
         // println!("littel_u_value: {:?}", input.as_str());
         parse_digits_radix(input, 16)
     }
-    fn big_u_value(input: Pair<Rule>) -> Result<char, &str> {
+    fn big_u_value(input: Pair<Rule>) -> Result<char, String> {
         // println!("big_u_value: {:?}", input.as_str());
         parse_digits_radix(input, 16)
     }
-    fn unicode_value(input: Pair<Rule>) -> Result<char, &str> {
+    fn unicode_value(input: Pair<Rule>) -> Result<char, String> {
         todo!()
         // println!("unicode_value: {:?}", input.as_str());
         // Ok(match_nodes!(input.clone().into_children();
@@ -148,7 +149,7 @@ impl CUEParser {
         //     [unicode_char(c)] => c,
         // ))
     }
-    fn byte_value(input: Pair<Rule>) -> Result<char, &str> {
+    fn byte_value(input: Pair<Rule>) -> Result<char, String> {
         todo!()
         // println!("byte_value: {:?}", input.as_str());
         // Ok(match_nodes!(input.into_children();
@@ -157,8 +158,9 @@ impl CUEParser {
         // ))
     }
     fn Interpolation(input: Pair<Rule>) -> Result<ast::Expr, &str> {
+        todo!()
         // println!("Iterpolation: {:?}", input.as_str());
-        CUEParser::Expression(input.into_children().single()?)
+        // CUEParser::Expression(input.into_children().single()?)
     }
     fn String(input: Pair<Rule>) -> Result<ast::Interpolation, &str> {
         todo!()
@@ -211,12 +213,13 @@ impl CUEParser {
         }
     }
     fn StructLit(input: Pair<Rule>) -> Result<ast::StructLit, &str> {
-        Ok(ast::StructLit {
-            elements: input
-                .into_children()
-                .map(|c| CUEParser::Declaration(c))
-                .try_collect()?,
-        })
+        todo!()
+        // Ok(ast::StructLit {
+        //     elements: input
+        //         .into_children()
+        //         .map(|c| CUEParser::Declaration(c))
+        //         .try_collect()?,
+        // })
     }
     fn Declaration(input: Pair<Rule>) -> Result<ast::Declaration, &str> {
         todo!()
@@ -228,9 +231,10 @@ impl CUEParser {
         // ))
     }
     fn Ellipsis(input: Pair<Rule>) -> Result<ast::Ellipsis, &str> {
-        Ok(ast::Ellipsis {
-            inner: CUEParser::Expression(input.into_children().single()?)?,
-        })
+        todo!()
+        // Ok(ast::Ellipsis {
+        //     inner: CUEParser::Expression(input.into_children().single()?)?,
+        // })
     }
     fn Embedding(input: Pair<Rule>) -> Result<ast::Expr, &str> {
         todo!()
@@ -288,12 +292,6 @@ impl CUEParser {
         Ok(ast::Attribute {
             text: input.as_str().to_string(),
         })
-    }
-    fn attr_tokens(input: Pair<Rule>) -> Result<(), &str> {
-        Err(input.error("attr_tokens should be unreachable"))
-    }
-    fn attr_token(input: Pair<Rule>) -> Result<(), &str> {
-        Err(input.error("attr_token should be unreachable"))
     }
     fn AliasExpr(input: Pair<Rule>) -> Result<ast::Expr, &str> {
         todo!()
@@ -360,7 +358,8 @@ impl CUEParser {
         //     [SimpleString(s)] => ast::Label::Basic(s)))
     }
     fn Index(input: Pair<Rule>) -> Result<ast::Expr, &str> {
-        CUEParser::Expression(input.into_children().single()?)
+        todo!()
+        // CUEParser::Expression(input.into_children().single()?)
     }
     fn Slice(input: Pair<Rule>) -> Result<(ast::Expr, ast::Expr), &str> {
         todo!()
@@ -368,7 +367,8 @@ impl CUEParser {
         //     [Expression(low), Expression(high)] => (low, high)))
     }
     fn Argument(input: Pair<Rule>) -> Result<ast::Expr, &str> {
-        CUEParser::Expression(input.into_children().single()?)
+        todo!()
+        // CUEParser::Expression(input.into_children().single()?)
     }
     fn Arguments(input: Pair<Rule>) -> Result<Vec<ast::Expr>, &str> {
         todo!()
@@ -434,32 +434,7 @@ impl CUEParser {
         //     infix,
         // )
     }
-    fn rel_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
-        match input.as_str() {
-            "!=" => Ok(ast::Operator::NotEqual),
-            "<" => Ok(ast::Operator::Less),
-            "<=" => Ok(ast::Operator::LessEqual),
-            ">" => Ok(ast::Operator::Greater),
-            ">=" => Ok(ast::Operator::GreaterEqual),
-            "=~" => Ok(ast::Operator::Match),
-            "!~" => Ok(ast::Operator::NotMatch),
-            x => unreachable!("rel_op {}", x),
-        }
-    }
-    fn add_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
-        match input.as_str() {
-            "+" => Ok(ast::Operator::Add),
-            "-" => Ok(ast::Operator::Subtract),
-            x => unreachable!("add_op {}", x),
-        }
-    }
-    fn mul_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
-        match input.as_str() {
-            "*" => Ok(ast::Operator::Multiply),
-            "-" => Ok(ast::Operator::Divide),
-            x => unreachable!("mul_op {}", x),
-        }
-    }
+
     // fn unary_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
     //     match input.as_rule() {
     //         Rule::rel_op => CUEParser::rel_op(input),
@@ -516,9 +491,10 @@ impl CUEParser {
         // }))
     }
     fn GuardClause(input: Pair<Rule>) -> Result<ast::Clause, &str> {
-        Ok(ast::Clause::If(CUEParser::Expression(
-            input.into_children().single()?,
-        )?))
+        todo!()
+        // Ok(ast::Clause::If(CUEParser::Expression(
+        //     input.into_children().single()?,
+        // )?))
     }
     fn LetClause(input: Pair<Rule>) -> Result<ast::Clause, &str> {
         todo!()
@@ -529,17 +505,20 @@ impl CUEParser {
         // })))
     }
     fn PackageClause(input: Pair<Rule>) -> Result<ast::Ident, &str> {
-        CUEParser::PackageName(input.into_children().single()?)
+        todo!()
+        // CUEParser::PackageName(input.into_children().single()?)
     }
     fn PackageName(input: Pair<Rule>) -> Result<ast::Ident, &str> {
-        CUEParser::identifier(input.into_children().single()?)
+        todo!()
+        // CUEParser::identifier(input.into_children().single()?)
     }
     fn ImportDecl(input: Pair<Rule>) -> Result<ast::Declaration, &str> {
-        input
-            .into_children()
-            .map(|i| CUEParser::ImportSpec(i))
-            .try_collect()
-            .map(|specs| ast::Declaration::ImportDecl(specs))
+        todo!()
+        // input
+        //     .into_children()
+        //     .map(|i| CUEParser::ImportSpec(i))
+        //     .try_collect()
+        //     .map(|specs| ast::Declaration::ImportDecl(specs))
     }
     fn ImportSpec(input: Pair<Rule>) -> Result<ast::ImportSpec, &str> {
         todo!()
@@ -656,47 +635,69 @@ fn interpolation_elements(input: Pair<Rule>) -> Result<Vec<ast::Expr>, &str> {
         .collect());
 }
 
-fn parse_digits_radix(input: Pair<Rule>, radix: u32) -> char {
+fn parse_digits_radix(input: Pair<Rule>, radix: u32) -> Result<char, String> {
     let escape = input.clone().into_pair().into_inner().as_str();
     let digits = input.as_str().trim_start_matches(escape);
     match u32::from_str_radix(digits, radix) {
         Ok(char_value) => match char::from_u32(char_value) {
             Some(c) => Ok(c),
-            None => Err(input.error("parse_digits_radix: invalid char")),
+            None => Err("parse_digits_radix: invalid char".to_string()),
         },
-        _ => Err(input.error("parse_digits_radix: invalid digits")),
+        _ => Err("parse_digits_radix: invalid digits".to_string()),
+    }
+}
+
+fn rel_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
+    match input.as_str() {
+        "!=" => Ok(ast::Operator::NotEqual),
+        "<" => Ok(ast::Operator::Less),
+        "<=" => Ok(ast::Operator::LessEqual),
+        ">" => Ok(ast::Operator::Greater),
+        ">=" => Ok(ast::Operator::GreaterEqual),
+        "=~" => Ok(ast::Operator::Match),
+        "!~" => Ok(ast::Operator::NotMatch),
+        x => unreachable!("rel_op {}", x),
+    }
+}
+fn add_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
+    match input.as_str() {
+        "+" => Ok(ast::Operator::Add),
+        "-" => Ok(ast::Operator::Subtract),
+        x => unreachable!("add_op {}", x),
+    }
+}
+fn mul_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
+    match input.as_str() {
+        "*" => Ok(ast::Operator::Multiply),
+        "/" => Ok(ast::Operator::Divide),
+        x => unreachable!("mul_op {}", x),
     }
 }
 
 fn binary_op(input: Pair<Rule>) -> Result<ast::Operator, &str> {
     match input.as_rule() {
-        Rule::rel_op => CUEParser::rel_op(input),
-        Rule::add_op => CUEParser::add_op(input),
-        Rule::mul_op => CUEParser::mul_op(input),
-        Rule::binary_op => match input.into_children().single()?.as_rule() {
-            Rule::disjunct_op => Ok(ast::Operator::Disjunct),
-            Rule::conjuct_op => Ok(ast::Operator::Conjunct),
-            Rule::or_op => Ok(ast::Operator::Or),
-            Rule::and_op => Ok(ast::Operator::And),
-            Rule::equal_op => Ok(ast::Operator::Equal),
-            x => panic!("binary_op {:?}", x),
-        },
-        x => panic!("binary_op {:?}", x),
+        Rule::rel_op => rel_op(input),
+        Rule::add_op => add_op(input),
+        Rule::mul_op => mul_op(input),
+        Rule::disjunct_op => Ok(ast::Operator::Disjunct),
+        Rule::conjuct_op => Ok(ast::Operator::Conjunct),
+        Rule::or_op => Ok(ast::Operator::Or),
+        Rule::and_op => Ok(ast::Operator::And),
+        Rule::equal_op => Ok(ast::Operator::Equal),
+        x => unreachable!("binary_op {:?}", x),
     }
 }
 
 #[allow(unused_macros)]
 macro_rules! parse_single {
     ($rule:ident, $input:expr) => {
-        CUEParser::parse(Rule::$rule, $input)
-            .and_then(|r| r.single())
-            .and_then(|r| CUEParser::$rule(r))
+        CUEParser::$rule(CUEParser::parse(Rule::$rule, $input))
     };
 }
 
 #[test]
 fn test_float() {
-    let parse_float = |i| parse_single!(float_lit, i);
+    let parse_float = |i: &str| parse_single!(float_lit, i);
     assert_eq!(parse_float("0.0"), Ok(0.0));
     assert_eq!(parse_float("1.0"), Ok(1.0));
     assert_eq!(parse_float("-1.0"), Ok(-1.0));
