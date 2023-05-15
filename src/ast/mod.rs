@@ -257,9 +257,9 @@ pub struct UnaryExpr {
 }
 #[derive(Debug, PartialEq, Clone)]
 pub struct BinaryExpr {
-    rhs: Box<Expr>,
-    op: Operator,
     lhs: Box<Expr>,
+    op: Operator,
+    rhs: Box<Expr>,
 }
 #[derive(Debug, PartialEq, Clone)]
 pub struct Parens {
@@ -366,11 +366,11 @@ impl Expr {
             child: Box::new(child),
         })
     }
-    pub fn binary_expr(rhs: Expr, op: Operator, lhs: Expr) -> Self {
+    pub fn binary_expr(lhs: Expr, op: Operator, rhs: Expr) -> Self {
         Self::BinaryExpr(BinaryExpr {
-            rhs: Box::new(rhs),
-            op,
             lhs: Box::new(lhs),
+            op,
+            rhs: Box::new(rhs),
         })
     }
     pub fn parens(inner: Expr) -> Self {

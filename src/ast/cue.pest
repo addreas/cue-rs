@@ -92,7 +92,7 @@ ListLit       = { "[" ~ ( ElementList ~ ","? )? ~ "]" }
 ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellipsis )? ) }
 
 Literal     = { BasicLit | ListLit | StructLit }
-Operand     = { Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
+
 BasicLit    = { int_lit | float_lit | String | null_lit | bool_lit | bottom_lit }
 OperandName = { identifier | QualifiedIdent }
 
@@ -104,25 +104,12 @@ Slice          = { "[" ~ Expression? ~ ":" ~ Expression? ~ "]" }
 Argument       = { Expression }
 Arguments      = { "(" ~ ( ( Argument ~ ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
 
-// PrimaryExpr = {	Operand
-//               | ( PrimaryExpr ~ Selector )
-//               | ( PrimaryExpr ~ Index )
-//               | ( PrimaryExpr ~ Slice )
-//               | ( PrimaryExpr ~ Arguments )
-//               }
+Expression = { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix* )* }
 
-PrimaryExpr = { Operand ~ (Selector | Index | Slice | Arguments )* }
-
-
-// UnaryExpr  = { PrimaryExpr | ( unary_op ~ UnaryExpr ) }
-// Expression = { UnaryExpr | ( Expression ~ binary_op ~ Expression ) }
-// Expression = { UnaryExpr ~ (binary_op ~ UnaryExpr)* }
-
-Expression =   { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix* )* }
 infix    =  _{ disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op }
 prefix   =  _{ not_op | mul_op | rel_op | add_op }
-postfix  =  _{ "^" }
-primary  =  _{ PrimaryExpr }
+postfix  =  _{ Selector | Index | Slice | Arguments }
+primary  =  _{ Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
 
 // binary_op   = _{ disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op  }
 disjunct_op = { "|" }
@@ -134,7 +121,6 @@ rel_op      = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
 add_op      = { "+" | "-" }
 mul_op      = { "*" | "/" }
 not_op      = { "!" }
-// unary_op    = { not_op | mul_op | rel_op | add_op }
 
 Comprehension = { Clauses ~ StructLit }
 
