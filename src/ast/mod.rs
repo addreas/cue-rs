@@ -12,6 +12,8 @@ pub enum Operator {
     Divide,   // /
     Power,    // ^
 
+    Default, // *
+
     Conjunct, // &
     Disjunct, // |
 

@@ -1,6 +1,5 @@
-use pest::iterators::Pairs;
-use pest::Parser;
 use pest::{
+    Parser,
     iterators::Pair,
     pratt_parser::{Assoc, Op, PrattParser},
 };
@@ -24,12 +23,77 @@ lazy_static::lazy_static! {
         .op(Op::infix(Rule::add_op, Assoc::Left))
         .op(Op::infix(Rule::mul_op, Assoc::Left))
         .op(Op::postfix(Rule::Selector) | Op::postfix(Rule::Index) | Op::postfix(Rule::Slice) | Op::postfix(Rule::Arguments))
-        .op(Op::prefix(Rule::not_op) | Op::prefix(Rule::mul_op) | Op::prefix(Rule::rel_op) | Op::prefix(Rule::add_op));
+        .op(Op::prefix(Rule::not_op) | Op::prefix(Rule::default_op) | Op::prefix(Rule::rel_op) | Op::prefix(Rule::add_op));
 }
 
 type Error = String;
 
-// This is the other half of the parser, using pest_consume.
+
+macro_rules! match_pair {
+    (
+        $expression:expr, {
+            $( $rule:ident($binding:pat) => $body:expr ),*
+            $(,)?
+        }
+    )
+    =>
+    {
+        {
+            match $expression.as_rule() {
+                $(
+                    Rule::$rule  => {
+                        let $binding = CUEParser::$rule($expression);
+
+                        $body
+                    }
+                ),*
+                _ => unreachable!("rule unreachable: {:?}", $expression),
+            }
+        }
+    }
+}
+
+macro_rules! match_pairs {
+    (
+        $expression:expr, {
+            $( [ $($rule:ident($binding:pat)),* ] => $body:expr ),*
+            $(,)?
+        }
+    )
+    =>
+    {
+        {
+            let val = $expression;
+            let mut mutval = val.clone();
+            match val.map(|p| p.as_rule()).collect::<Vec<_>>()[..] {
+                $(
+                    [ $( Rule::$rule ),* ] => {
+                        $( let $binding = CUEParser::$rule(mutval.next().unwrap()); )*
+
+                        $body
+                    }
+                ),*
+                _ => unreachable!("rule unreachable: {:?}", mutval),
+            }
+        }
+    };
+}
+
+#[test]
+fn test_pairs() {
+    let pairs = CUEParser::parse(Rule::si_lit, "0.5Ti")
+        .unwrap()
+        .next()
+        .unwrap()
+        .into_inner();
+    let res = match_pairs!(pairs, {
+        [decimal_lit(a), fraction(b), multiplier(m)] => (a, b, m),
+        [decimal_lit(a),              multiplier(m)] => (a, Ok(1.0), m),
+        [                fraction(b), multiplier(m)] => (Ok(0), b, m),
+    });
+    assert_eq!(res, (Ok(0), Ok(0.5), 1099511627776))
+}
+
 impl CUEParser {
     fn identifier(input: Pair<Rule>) -> ast::Ident {
         ast::Ident {
@@ -57,17 +121,11 @@ impl CUEParser {
             .map_err(|e| format!("fraction: {:?}: {}", input, e))
     }
     fn si_lit(input: Pair<Rule>) -> Result<i64, Error> {
-        // let pairs = input.into_inner();
-        // let a = match pairs.map(|p| (p.as_rule(), p)).collect::<Vec<_>>()[..] {
-        //     [(Rule::decimal_lit, a), (Rule::fraction, b), (Rule::multiplier, m)] => 1.0,
-        //     [(Rule::decimal_lit, a), (Rule::multiplier, m)] => CUEParser::decimal_lit(a)? * CUEParser::multiplier(m)?,
-        //     [(Rule::fraction, b), (Rule::multiplier, m)] => CUEParser::fraction(b)? * CUEParser::multiplier(m)?,
-        // };
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [decimal_lit(a), fraction(b), multiplier(m)] => ((a as f64 + b) * m  as f64) as i64,
-        //     [decimal_lit(a),              multiplier(m)] => ((a             * m) as f64) as i64,
-        //     [                fraction(b), multiplier(m)] => (            b  * m  as f64) as i64))
+        Ok(match_pairs!(input.into_inner(), {
+            [decimal_lit(a), fraction(b), multiplier(m)] => ((a? as f64 + b?) * m as f64) as i64,
+            [decimal_lit(a),              multiplier(m)] => a? * m,
+            [                fraction(b), multiplier(m)] => (b? * m as f64) as i64,
+        }))
     }
     fn binary_lit(input: Pair<Rule>) -> Result<i64, Error> {
         i64::from_str_radix(input.as_str(), 2)
@@ -79,44 +137,43 @@ impl CUEParser {
     fn hex_lit(input: Pair<Rule>) -> Result<i64, Error> {
         i64::from_str_radix(input.as_str(), 16).map_err(|e| format!("hex_lit: {:?}: {}", input, e))
     }
-    fn multiplier(input: Pair<Rule>) -> Result<i64, Error> {
+    fn multiplier(input: Pair<Rule>) -> i64 {
         match input.as_str() {
-            "K" => Ok(i64::pow(10, 3)),
-            "M" => Ok(i64::pow(10, 6)),
-            "G" => Ok(i64::pow(10, 9)),
-            "T" => Ok(i64::pow(10, 12)),
-            "P" => Ok(i64::pow(10, 15)),
-            "Ki" => Ok(i64::pow(2, 10)),
-            "Mi" => Ok(i64::pow(2, 20)),
-            "Gi" => Ok(i64::pow(2, 30)),
-            "Ti" => Ok(i64::pow(2, 40)),
-            "Pi" => Ok(i64::pow(2, 50)),
-            _ => Err(format!("unknown multiplier: {}", input.as_str())),
+            "K" => i64::pow(10, 3),
+            "M" => i64::pow(10, 6),
+            "G" => i64::pow(10, 9),
+            "T" => i64::pow(10, 12),
+            "P" => i64::pow(10, 15),
+            "Ki" => i64::pow(2, 10),
+            "Mi" => i64::pow(2, 20),
+            "Gi" => i64::pow(2, 30),
+            "Ti" => i64::pow(2, 40),
+            "Pi" => i64::pow(2, 50),
+            _ => unreachable!("unknown multiplier: {}", input.as_str()),
         }
     }
     fn exponent(input: Pair<Rule>) -> Result<i32, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children(); [decimal_lit(n)] => n as i32))
+        match_pairs!(input.into_inner(), {
+            [decimal_lit(n)] => n.map(|n| n as i32)
+        })
     }
     fn int_lit(input: Pair<Rule>) -> Result<i64, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [si_lit(n)] => n,
-        //     [decimal_lit(n)] => n,
-        //     [binary_lit(n)] => n,
-        //     [octal_lit(n)] => n,
-        //     [hex_lit(n)] => n,
-        // ))
+        match_pairs!(input.into_inner(), {
+            [si_lit(n)] => n,
+            [decimal_lit(n)] => n,
+            [binary_lit(n)] => n,
+            [octal_lit(n)] => n,
+            [hex_lit(n)] => n,
+        })
     }
     fn float_lit(input: Pair<Rule>) -> Result<f64, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [decimal_lit(a), fraction(b), exponent(e)] => (a as f64 + b) * f64::powi(10.0, e),
-        //     [decimal_lit(a), fraction(b)             ] =>  a as f64 + b,
-        //     [decimal_lit(a),              exponent(e)] =>  a as f64      * f64::powi(10.0, e),
-        //     [                fraction(b), exponent(e)] =>             b  * f64::powi(10.0, e),
-        //     [                fraction(b)             ] =>             b,
-        // ))
+        Ok(match_pairs!(input.into_inner(), {
+            [decimal_lit(a), fraction(b), exponent(e)] => (a? as f64 + b?) * f64::powi(10.0, e?),
+            [decimal_lit(a), fraction(b)             ] =>  a? as f64 + b?,
+            [decimal_lit(a),              exponent(e)] =>  a? as f64      * f64::powi(10.0, e?),
+            [                fraction(b), exponent(e)] =>             b?  * f64::powi(10.0, e?),
+            [                fraction(b)             ] =>             b?,
+        }))
     }
     fn escaped_char(input: Pair<Rule>) -> Result<char, Error> {
         // println!("escaped_char: {:?}", input.as_str());
@@ -152,36 +209,34 @@ impl CUEParser {
         parse_digits_radix(input, 16)
     }
     fn unicode_value(input: Pair<Rule>) -> Result<char, Error> {
-        todo!()
         // println!("unicode_value: {:?}", input.as_str());
-        // Ok(match_nodes!(input.clone().into_children();
-        //     [little_u_value(c)] => c,
-        //     [big_u_value(c)] => c,
-        //     [escaped_char(c)] => c,
-        //     [unicode_char(c)] => c,
-        // ))
+        match_pairs!(input.into_inner(), {
+            [little_u_value(c)] => c,
+            [big_u_value(c)] => c,
+            [escaped_char(c)] => c,
+            [unicode_char(c)] => c,
+        })
     }
     fn byte_value(input: Pair<Rule>) -> Result<char, Error> {
-        todo!()
         // println!("byte_value: {:?}", input.as_str());
-        // Ok(match_nodes!(input.into_children();
-        //     [octal_byte_value(c)] => c,
-        //     [hex_byte_value(c)] => c,
-        // ))
+        match_pairs!(input.into_inner(), {
+            [octal_byte_value(c)] => c,
+            [hex_byte_value(c)] => c,
+        })
     }
     fn Interpolation(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
         // println!("Iterpolation: {:?}", input.as_str());
-        // CUEParser::Expression(input.into_children().single()?)
+        // TODO?
+        CUEParser::Expression(input) // todo: into inner?
     }
     fn String(input: Pair<Rule>) -> Result<ast::Interpolation, Error> {
-        todo!()
         // println!("String: {:?}", input.as_str());
-        // Ok(match_nodes!(input.into_children();
-        //     [SimpleString(s)] => s,
-        //     [MultilineString(s)] => s,
-        //     [SimpleBytes(s)] => s,
-        //     [MultilineBytes(s)] => s))
+        match_pairs!(input.into_inner(), {
+            [SimpleString(s)] => s,
+            [MultilineString(s)] => s,
+            [SimpleBytes(s)] => s,
+            [MultilineBytes(s)] => s
+        })
     }
     fn SimpleString(input: Pair<Rule>) -> Result<ast::Interpolation, Error> {
         // println!("SimpleString: {:?}", input);
@@ -211,11 +266,11 @@ impl CUEParser {
             elements: interpolation_elements(input)?,
         })
     }
-    fn bottom_lit(input: Pair<Rule>) -> Result<(), Error> {
-        Ok(())
+    fn bottom_lit(_: Pair<Rule>) -> ast::BasicLit {
+        ast::BasicLit::Bottom
     }
-    fn null_lit(input: Pair<Rule>) -> Result<(), Error> {
-        Ok(())
+    fn null_lit(_: Pair<Rule>) -> ast::BasicLit {
+        ast::BasicLit::Null
     }
     fn bool_lit(input: Pair<Rule>) -> Result<bool, Error> {
         match input.as_str() {
@@ -225,80 +280,75 @@ impl CUEParser {
         }
     }
     fn StructLit(input: Pair<Rule>) -> Result<ast::StructLit, Error> {
-        todo!()
-        // Ok(ast::StructLit {
-        //     elements: input
-        //         .into_children()
-        //         .map(|c| CUEParser::Declaration(c))
-        //         .try_collect()?,
-        // })
+        Ok(ast::StructLit {
+            elements: input
+                .into_inner()
+                .map(|c| CUEParser::Declaration(c))
+                .try_collect()?,
+        })
     }
     fn Declaration(input: Pair<Rule>) -> Result<ast::Declaration, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [Field(f)] => ast::Declaration::Field(f),
-        //     [Ellipsis(e)] => ast::Declaration::Ellipsis(e),
-        //     [Embedding(e)] => ast::Declaration::Embedding(e),
-        //     [attribute(e)] => ast::Declaration::Attribute(e),
-        // ))
+        Ok(match_pairs!(input.into_inner(), {
+            [Field(f)] => ast::Declaration::Field(f?),
+            [Ellipsis(e)] => ast::Declaration::Ellipsis(e?),
+            [Embedding(e)] => ast::Declaration::Embedding(e?),
+            [attribute(e)] => ast::Declaration::Attribute(e?),
+        }))
     }
     fn Ellipsis(input: Pair<Rule>) -> Result<ast::Ellipsis, Error> {
-        todo!()
-        // Ok(ast::Ellipsis {
-        //     inner: CUEParser::Expression(input.into_children().single()?)?,
-        // })
+        Ok(ast::Ellipsis {
+            inner: CUEParser::Expression(input)?, // todo: into inner?
+        })
     }
     fn Embedding(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [Comprehension(c)] => ast::Expr::Comprehension(Box::new(c)),
-        //     [AliasExpr(a)] => a,
-        // ))
+        Ok(match_pairs!(input.into_inner(), {
+            [Comprehension(c)] => ast::Expr::Comprehension(Box::new(c?)),
+            [AliasExpr(a)] => a?,
+        }))
     }
     fn Field(input: Pair<Rule>) -> Result<ast::Field, Error> {
-        todo!()
-        // match_nodes!(input.into_children();
-        // [Labels(mut ls), AliasExpr(value), attribute(attributes)..] => {
-        //     let mut lsi = ls.iter_mut();
-        //     let init = ast::Field {
-        //         label: lsi.next().expect("nonempty list").clone(),
-        //         value: value,
-        //         attributes: {
-        //             let collected: Vec<_> = attributes.collect();
-        //             match collected.len() {
-        //                 0 => None,
-        //                 _ => Some(collected)
-        //             }
-        //         },
-        //     };
-        //     return Ok(lsi.rfold(init, |acc, label| ast::Field {
-        //         label: label.clone(),
-        //         value: ast::Expr::Struct(ast::StructLit {
-        //             elements: vec![ast::Declaration::Field(acc)],
-        //         }),
-        //         attributes: None,
-        //     }));
-        // })
+        // todo: rewrite?
+        let mut inner = input.into_inner();
+        let mut ls = CUEParser::Labels(inner.next().unwrap())?;
+        let value = CUEParser::AliasExpr(inner.next().unwrap())?;
+
+        let attributes: Vec<_> = inner.map(|p| CUEParser::attribute(p).unwrap()).collect();
+
+        let mut lsi = ls.iter_mut();
+        let init = ast::Field {
+            label: lsi.next().expect("nonempty list").clone(),
+            value: value,
+            attributes: {
+                match attributes.len() {
+                    0 => None,
+                    _ => Some(attributes),
+                }
+            },
+        };
+
+        Ok(lsi.rfold(init, |acc, label| ast::Field {
+            label: label.clone(),
+            value: ast::Expr::Struct(ast::StructLit {
+                elements: vec![ast::Declaration::Field(acc)],
+            }),
+            attributes: None,
+        }))
     }
     fn Labels(input: Pair<Rule>) -> Result<Vec<ast::Label>, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [Label(labels)..] => labels.collect()))
+        input.into_inner().map(|p| CUEParser::Label(p)).collect()
     }
     fn Label(input: Pair<Rule>) -> Result<ast::Label, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [LabelName(n)] => n,
-        //     [Expression(e)] => ast::Label::Paren(e),
-        //     [AliasExpr(a)] => ast::Label::Bracket(a),
-        // ))
+        Ok(match_pairs!(input.into_inner(), {
+            [LabelName(n)] => n?,
+            [Expression(e)] => ast::Label::Paren(e?),
+            [AliasExpr(a)] => ast::Label::Bracket(a?),
+        }))
     }
     fn LabelName(input: Pair<Rule>) -> Result<ast::Label, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [identifier(i)] => ast::Label::Ident(i),
-        //     [SimpleString(s)] => ast::Label::Basic(s)
-        // ))
+        Ok(match_pairs!(input.into_inner(), {
+            [identifier(i)] => ast::Label::Ident(i),
+            [SimpleString(s)] => ast::Label::Basic(s?)
+        }))
     }
     fn attribute(input: Pair<Rule>) -> Result<ast::Attribute, Error> {
         Ok(ast::Attribute {
@@ -306,116 +356,84 @@ impl CUEParser {
         })
     }
     fn AliasExpr(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [identifier(ident), Expression(expr)] => ast::Expr::alias(ident, expr),
-        //     [Expression(expr)] => expr
-        // ))
+        Ok(match_pairs!(input.into_inner(), {
+                [identifier(ident), Expression(expr)] => ast::Expr::alias(ident, expr?),
+                [Expression(expr)] => expr?
+        }))
     }
     fn ListLit(input: Pair<Rule>) -> Result<ast::ListLit, Error> {
         Ok(ast::ListLit {
-            elements: CUEParser::ElementList(input.into_inner())?,
+            elements: CUEParser::ElementList(input)?, // todo: into inner
         })
     }
-    fn ElementList(input: Pairs<Rule>) -> Result<Vec<ast::Expr>, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        // [Ellipsis(e)] => vec![ast::Expr::Ellipsis(Box::new(e))],
-        // [Embedding(e)..] => e.collect(),
-        // [Embedding(em).., Ellipsis(el)] => {
-        //     let mut res: Vec<_> = em.collect();
-        //     res.push(ast::Expr::Ellipsis(Box::new(el)));
-        //     res
-        // }))
+    fn ElementList(input: Pair<Rule>) -> Result<Vec<ast::Expr>, Error> {
+        input.into_inner().map(|p| {
+            Ok(match_pair!(p, {
+                Ellipsis(e) => ast::Expr::Ellipsis(Box::new(e?)),
+                Embedding(e) => e?,
+            }))
+        }).collect()
     }
     fn Literal(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [BasicLit(b)] => ast::Expr::BasicLit(b),
-        //     [ListLit(l)] => ast::Expr::List(l),
-        //     [StructLit(s)] => ast::Expr::Struct(s)))
+        Ok(match_pairs!(input.into_inner(), {
+            [BasicLit(b)] => ast::Expr::BasicLit(b?),
+            [ListLit(l)] => ast::Expr::List(l?),
+            [StructLit(s)] => ast::Expr::Struct(s?)
+        }))
     }
     fn Operand(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [Literal(l)] => l,
-        //     [OperandName(o)] => o,
-        //     [Expression(e)] => ast::Expr::parens(e)))
+        Ok(match_pairs!(input.into_inner(), {
+            [Literal(l)] => l?,
+            [OperandName(o)] => o?,
+            [Expression(e)] => ast::Expr::parens(e?)
+        }))
     }
     fn BasicLit(input: Pair<Rule>) -> Result<ast::BasicLit, Error> {
-        todo!()
-        // match_nodes!(input.into_children();
-        //     [int_lit(l)] => Ok(ast::BasicLit::Int(l)),
-        //     [float_lit(l)] => Ok(ast::BasicLit::Float(l)),
-        //     [bool_lit(l)] => Ok(ast::BasicLit::Bool(l)),
-        //     [null_lit(_)] => Ok(ast::BasicLit::Null),
-        //     [bottom_lit(_)] => Ok(ast::BasicLit::Bottom),
-        // )
+        Ok(match_pairs!(input.into_inner(), {
+            [int_lit(l)] => ast::BasicLit::Int(l?),
+            [float_lit(l)] => ast::BasicLit::Float(l?),
+            [bool_lit(l)] => ast::BasicLit::Bool(l?),
+            [null_lit(l)] => l,
+            [bottom_lit(l)] => l,
+        }))
     }
     fn OperandName(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [identifier(i)] => ast::Expr::Ident(i),
-        //     [QualifiedIdent(qi)] => qi))
+        Ok(match_pairs!(input.into_inner(), {
+            [identifier(i)] => ast::Expr::Ident(i),
+            [QualifiedIdent(qi)] => qi?
+        }))
     }
     fn QualifiedIdent(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [PackageName(p), identifier(i)] => ast::Expr::QualifiedIdent(p, i)))
+        Ok(match_pairs!(input.into_inner(), {
+            [PackageName(p), identifier(i)] => ast::Expr::QualifiedIdent(p?, i)
+        }))
     }
     fn Selector(input: Pair<Rule>) -> Result<ast::Label, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [identifier(i)] => ast::Label::Ident(i),
-        //     [SimpleString(s)] => ast::Label::Basic(s)))
+        Ok(match_pairs!(input.into_inner(), {
+            [identifier(i)] => ast::Label::Ident(i),
+            [SimpleString(s)] => ast::Label::Basic(s?)
+        }))
     }
     fn Index(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
-        // CUEParser::Expression(input.into_children().single()?)
+        CUEParser::Expression(input) // todo: into_inner?
     }
     fn Slice(input: Pair<Rule>) -> Result<(ast::Expr, ast::Expr), Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [Expression(low), Expression(high)] => (low, high)))
+        Ok(match_pairs!(input.into_inner(), {
+            [Expression(low), Expression(high)] => (low?, high?)
+        }))
     }
     fn Argument(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
-        // CUEParser::Expression(input.into_children().single()?)
+        CUEParser::Expression(input) // todo: into inner?
     }
     fn Arguments(input: Pair<Rule>) -> Result<Vec<ast::Expr>, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [Argument(a)..] => a.collect()))
+        input.into_inner().map(|p| CUEParser::Argument(p)).collect()
     }
-    fn PrimaryExpr(input: Pair<Rule>) -> Result<ast::Expr, Error> {
-        todo!()
-        // match_nodes!(input.into_children();
-        // [Operand(o)] => Ok(o),
-        // [Operand(o), items] => {
-        //     let mut current_expr = o;
-        //     for item in items.into_children() {
-        //         current_expr = match item.as_rule() {
-        //             Rule::Selector => ast::Expr::selector(current_expr, CUEParser::Selector(item)?),
-        //             Rule::Index => ast::Expr::index(current_expr, CUEParser::Index(item)?),
-        //             Rule::Slice => {
-        //                 let (low, high) = CUEParser::Slice(item)?;
-        //                 ast::Expr::slice(current_expr, low, high)
-        //             },
-        //             Rule::Arguments => ast::Expr::call(current_expr, CUEParser::Arguments(item)?),
-        //             x => unreachable!("unexpected primary expr rule {:?}", x)
-        //         }
-        //     }
-
-        //     Ok(current_expr)
-        // })
-    }
-
-    fn Expression(input: Pairs<Rule>) -> Result<ast::Expr, Error> {
+    fn Expression(input: Pair<Rule>) -> Result<ast::Expr, Error> {
         PRATT
             .map_primary(|primary| match primary.as_rule() {
                 Rule::Literal => CUEParser::Literal(primary),
                 Rule::OperandName => CUEParser::OperandName(primary),
-                Rule::Expression => CUEParser::Expression(primary.into_inner()),
+                Rule::Expression => CUEParser::Expression(primary),
                 _ => unreachable!("unknown primary rule"),
             })
             .map_prefix(|prefix, rhs| {
@@ -423,135 +441,109 @@ impl CUEParser {
                     Rule::rel_op => rel_op(prefix)?,
                     Rule::add_op => add_op(prefix)?,
                     Rule::not_op => ast::Operator::Not,
-                    Rule::mul_op => ast::Operator::Multiply,
-                    x => unreachable!("unknown prefix rule"),
+                    Rule::default_op => ast::Operator::Default,
+                    _ => unreachable!("unknown prefix rule"),
                 };
                 return Ok(ast::Expr::UnaryExpr(ast::UnaryExpr {
                     op: op,
                     child: Box::new(rhs?),
                 }));
             })
-            .map_infix(|lhs, op, rhs| {
-                Ok(ast::Expr::binary_expr(rhs?, binary_op(op)?, lhs?))
-            })
+            .map_infix(|lhs, op, rhs| Ok(ast::Expr::binary_expr(rhs?, binary_op(op)?, lhs?)))
             .map_postfix(|lhs, op| {
-                match op.as_rule() {
-                    Rule::Selector => Ok(ast::Expr::selector(lhs?, CUEParser::Selector(op)?)),
-                    Rule::Index => Ok(ast::Expr::index(lhs?, CUEParser::Index(op)?)),
-                    Rule::Slice => {
-                        let (low, high) = CUEParser::Slice(op)?;
-                        Ok(ast::Expr::slice(lhs?, low, high))
+                Ok(match_pairs!(op.into_inner(), {
+                    [Selector(sel)] => ast::Expr::selector(lhs?, sel?),
+                    [Index(i)] => ast::Expr::index(lhs?, i?),
+                    [Slice(s)] => {
+                        let (lo, hi) = s?;
+                        ast::Expr::slice(lhs?, lo, hi)
                     },
-                    Rule::Arguments => Ok(ast::Expr::call(lhs?, CUEParser::Arguments(op)?)),
-                    _ => unreachable!("unknown postfix rule")
-                }
+                    [Arguments(args)] => ast::Expr::call(lhs?, args?),
+                }))
             })
-            .parse(input)
-
+            .parse(input.into_inner())
     }
 
-    // fn unary_op(input: Pair<Rule>) -> Result<ast::Operator, Error> {
-    //     match input.as_rule() {
-    //         Rule::rel_op => CUEParser::rel_op(input),
-    //         Rule::add_op => CUEParser::add_op(input),
-    //         Rule::unary_op => match input.as_str() {
-    //             "!" => Ok(ast::Operator::Not),
-    //             "*" => Ok(ast::Operator::Multiply),
-    //             x => unreachable!("unary_op {}", x),
-    //         },
-    //         x => unreachable!("unary_op {:?}", x),
-    //     }
-    // }
     fn Comprehension(input: Pair<Rule>) -> Result<ast::Comprehension, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        // [Clauses(clauses), StructLit(s)] => ast::Comprehension {
-        //     clauses, expr: ast::Expr::Struct(s)
-        // }))
+        Ok(match_pairs!(input.into_inner(), {
+            [Clauses(clauses), StructLit(s)] => ast::Comprehension {
+                clauses: clauses?,
+                expr: ast::Expr::Struct(s?),
+            }
+        }))
     }
     fn Clauses(input: Pair<Rule>) -> Result<Vec<ast::Clause>, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        // [StartClause(sc)] => vec![sc],
-        // [StartClause(sc), Clause(cs)..] => {
-        //     let mut clauses = vec![sc];
-        //     clauses.extend(cs);
-        //     clauses
-        // }))
+        input.into_inner().map(|p| match_pair!(p, {
+            StartClause(c) => c,
+            Clause(c) => c,
+        })).collect()
     }
     fn StartClause(input: Pair<Rule>) -> Result<ast::Clause, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [ForClause(fc)] => fc,
-        //     [GuardClause(gc)] => gc))
+        Ok(match_pairs!(input.into_inner(), {
+            [ForClause(fc)] => fc?,
+            [GuardClause(gc)] => gc?
+        }))
     }
     fn Clause(input: Pair<Rule>) -> Result<ast::Clause, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [StartClause(sc)] => sc,
-        //     [LetClause(lc)] => lc))
+        Ok(match_pairs!(input.into_inner(), {
+            [StartClause(sc)] => sc?,
+            [LetClause(lc)] => lc?
+        }))
     }
     fn ForClause(input: Pair<Rule>) -> Result<ast::Clause, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        // [identifier(key), identifier(value), Expression(source)] => ast::Clause::For {
-        //     key: Some(key),
-        //     value,
-        //     source
-        // },
-        // [identifier(value), Expression(source)] => ast::Clause::For {
-        //     key:None,
-        //     value,
-        //     source
-        // }))
+        Ok(match_pairs!(input.into_inner(), {
+            [identifier(key), identifier(value), Expression(source)] => ast::Clause::For {
+                key: Some(key),
+                value,
+                source: source?
+            },
+            [identifier(value), Expression(source)] => ast::Clause::For {
+                key:None,
+                value,
+                source: source?
+            }
+        }))
     }
     fn GuardClause(input: Pair<Rule>) -> Result<ast::Clause, Error> {
-        todo!()
-        // Ok(ast::Clause::If(CUEParser::Expression(
-        //     input.into_children().single()?,
-        // )?))
+        Ok(ast::Clause::If(CUEParser::Expression(
+            input, // todo: into inner
+        )?))
     }
     fn LetClause(input: Pair<Rule>) -> Result<ast::Clause, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        // [identifier(i), Expression(e)] => ast::Clause::Let(ast::LetClause {
-        //     alias: i,
-        //     value: e
-        // })))
+        Ok(match_pairs!(input.into_inner(), {
+            [identifier(i), Expression(e)] => ast::Clause::Let(ast::LetClause { alias: i, value: e? })
+        }))
     }
     fn PackageClause(input: Pair<Rule>) -> Result<ast::Ident, Error> {
-        todo!()
-        // CUEParser::PackageName(input.into_children().single()?)
+        CUEParser::PackageName(input) // todo: into inner
     }
     fn PackageName(input: Pair<Rule>) -> Result<ast::Ident, Error> {
-        todo!()
-        // CUEParser::identifier(input.into_children().single()?)
+        Ok(CUEParser::identifier(input)) // todo: into inner
     }
     fn ImportDecl(input: Pair<Rule>) -> Result<ast::Declaration, Error> {
-        todo!()
-        // input
-        //     .into_children()
-        //     .map(|i| CUEParser::ImportSpec(i))
-        //     .try_collect()
-        //     .map(|specs| ast::Declaration::ImportDecl(specs))
+        input
+            .into_inner()
+            .map(|i| CUEParser::ImportSpec(i))
+            .try_collect()
+            .map(|specs| ast::Declaration::ImportDecl(specs))
     }
     fn ImportSpec(input: Pair<Rule>) -> Result<ast::ImportSpec, Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        // [PackageName(alias), ImportPath((path, package))] => ast::ImportSpec {
-        //     alias,
-        //     path,
-        //     package,
-        // }))
+        Ok(match_pairs!(input.into_inner(), {
+            [PackageName(alias), ImportPath(path)] => ast::ImportSpec {
+                alias: alias?,
+                path: path.0,
+                package: path.1,
+            }
+        }))
     }
-    fn ImportLocation(input: Pair<Rule>) -> Result<ast::BasicLit, Error> {
-        Ok(ast::BasicLit::String(input.as_str().to_string()))
+    fn ImportLocation(input: Pair<Rule>) -> ast::BasicLit {
+        ast::BasicLit::String(input.as_str().to_string())
     }
-    fn ImportPath(input: Pair<Rule>) -> Result<(ast::BasicLit, Option<ast::Ident>), Error> {
-        todo!()
-        // Ok(match_nodes!(input.into_children();
-        //     [ImportLocation(path)] => (path, None),
-        //     [ImportLocation(path), identifier(package)] => (path, Some(package))))
+    fn ImportPath(input: Pair<Rule>) -> (ast::BasicLit, Option<ast::Ident>) {
+        match_pairs!(input.into_inner(), {
+            [ImportLocation(path)] => (path, None),
+            [ImportLocation(path), identifier(package)] => (path, Some(package))
+        })
     }
     fn SourceFile(input: Pair<Rule>) -> Result<ast::SourceFile, Error> {
         let children = input.into_inner();
@@ -585,7 +577,6 @@ impl CUEParser {
                 .collect(),
         })
     }
-
 }
 
 fn interpolation_elements(input: Pair<Rule>) -> Result<Vec<ast::Expr>, Error> {
@@ -697,59 +688,6 @@ fn binary_op(input: Pair<Rule>) -> Result<ast::Operator, Error> {
     }
 }
 
-/*
-
-match_pairs! input.into_inner() {
-    [decimal_lit(a), fraction(b), multiplier(m)] => a * b * m,
-    [decimal_lit(a),            , multiplier(m)] => a * m,
-    [                fraction(b), multiplier(m)] => b * m,
-}
-
-
-*/
-
-
-macro_rules! match_pairs {
-    // match pairs.map(|p| (p.as_rule(), p)).collect::<Vec<_>>()[..] {
-    //     [(Rule::decimal_lit, a), (Rule::fraction, b), (Rule::multiplier, m)] => CUEParser::decimal_lit(a)?  * CUEParser::fraction(b)? * CUEParser::multiplier(m)?,
-    //     [(Rule::decimal_lit, a), (Rule::multiplier, m)] => CUEParser::decimal_lit(a)? * CUEParser::multiplier(m)?,
-    //     [(Rule::fraction, b), (Rule::multiplier, m)] => CUEParser::fraction(b)? * CUEParser::multiplier(m)?,
-    // }
-    (
-        $expression:expr, {
-            $( [ $($rule:ident($binding:ident)),* ] => $body:expr ),*
-        }
-    ) => { {
-
-        let mut e = $expression.clone();
-        match $expression.map(|p| p.as_rule()).collect::<Vec<_>>()[..] {
-            $(
-                [ $( Rule::$rule ),* ] => {
-                    $( let $binding = CUEParser::$rule(e.next().unwrap()); )*
-
-                    $body
-                }
-            ),*
-            _ => {
-                unreachable!("rule unreachable: {:?}", e)
-            },
-        }
-    }
-    };
-}
-
-#[test]
-fn test_pairs() {
-    let pairs = CUEParser::parse(Rule::si_lit, "0.5Ti").unwrap().next().unwrap().into_inner();
-    let res = match_pairs!(pairs, {
-        [decimal_lit(a), fraction(b), multiplier(m)] => (a.unwrap() as f64) * (b.unwrap() as f64) * (m.unwrap() as f64),
-        [decimal_lit(a),              multiplier(m)] => (a.unwrap() as f64) * (m.unwrap() as f64),
-        [                fraction(b), multiplier(m)] => (b.unwrap() as f64) * (m.unwrap() as f64)
-    });
-    assert_eq!(res, 512.0)
-}
-
-
 #[allow(unused_macros)]
 macro_rules! parse_single {
     ($rule:ident, $input:expr) => {
@@ -758,13 +696,6 @@ macro_rules! parse_single {
                 .unwrap()
                 .next()
                 .unwrap(),
-        )
-    };
-}
-macro_rules! parse_multi {
-    ($rule:ident, $input:expr) => {
-        CUEParser::$rule(
-            CUEParser::parse(Rule::$rule, $input).unwrap(),
         )
     };
 }
@@ -915,19 +846,19 @@ fn test_struct() {
             elements: vec![
                 field(
                     parse_single!(Label, "identifier").unwrap(),
-                    parse_multi!(Expression, "0").unwrap()
+                    parse_single!(Expression, "0").unwrap()
                 ),
                 field(
                     parse_single!(Label, "\"quoted\"").unwrap(),
-                    parse_multi!(Expression, "1").unwrap(),
+                    parse_single!(Expression, "1").unwrap(),
                 ),
                 field(
                     parse_single!(Label, "(parenthesis)").unwrap(),
-                    parse_multi!(Expression, "2").unwrap(),
+                    parse_single!(Expression, "2").unwrap(),
                 ),
                 field(
                     parse_single!(Label, "[brackets=string]").unwrap(),
-                    parse_multi!(Expression, "3").unwrap(),
+                    parse_single!(Expression, "3").unwrap(),
                 ),
             ]
         })
@@ -937,31 +868,31 @@ fn test_struct() {
 #[test]
 fn test_expr() {
     assert_eq!(
-        parse_multi!(Expression, "1"),
+        parse_single!(Expression, "1"),
         Ok(ast::Expr::BasicLit(parse_single!(BasicLit, "1").unwrap()))
     );
     assert_eq!(
-        parse_multi!(Expression, "1 + 1"),
+        parse_single!(Expression, "1 + 1"),
         Ok(ast::Expr::binary_expr(
-            parse_multi!(Expression, "1").unwrap(),
+            parse_single!(Expression, "1").unwrap(),
             ast::Operator::Add,
-            parse_multi!(Expression, "1").unwrap()
+            parse_single!(Expression, "1").unwrap()
         ))
     );
     assert_eq!(
-        parse_multi!(Expression, "1 + 2 * 3"),
+        parse_single!(Expression, "1 + 2 * 3"),
         Ok(ast::Expr::binary_expr(
-            parse_multi!(Expression, "1").unwrap(),
+            parse_single!(Expression, "1").unwrap(),
             ast::Operator::Add,
-            parse_multi!(Expression, "2 * 3").unwrap(),
+            parse_single!(Expression, "2 * 3").unwrap(),
         ))
     );
     assert_eq!(
-        parse_multi!(Expression, "1 * 2 + 3"),
+        parse_single!(Expression, "1 * 2 + 3"),
         Ok(ast::Expr::binary_expr(
-            parse_multi!(Expression, "1 * 2").unwrap(),
+            parse_single!(Expression, "1 * 2").unwrap(),
             ast::Operator::Add,
-            parse_multi!(Expression, "3").unwrap(),
+            parse_single!(Expression, "3").unwrap(),
         ))
     );
 }
