@@ -86,7 +86,7 @@ attr_tokens     = { ( attr_token
                      )* }
 attr_token      = { !( "(" | ")" | "[" | "]" | "{" | "}" ) ~ ANY }
 
-AliasExpr  = { ( identifier ~ !("==") ~ "=" )? ~ Expression }
+AliasExpr  = { ( identifier ~ !(equal_op) ~ "=" )? ~ Expression } // TODO: could the grammar be tweaked to not require that !(equal_op)?
 
 ListLit       = { "[" ~ ( ElementList ~ ","? )? ~ "]" }
 ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellipsis )? ) }
@@ -107,7 +107,7 @@ Arguments      = { "(" ~ ( ( Argument ~ ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
 Expression = { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix* )* }
 
 infix    =  _{ or_op | and_op | disjunct_op | conjuct_op | equal_op | rel_op | add_op | mul_op }
-prefix   =  _{ not_op | default_op | unary_rel_op | unary_add_op }
+prefix   =  _{ unary_rel_op | unary_add_op | not_op | default_op }
 postfix  =  _{ Selector | Index | Slice | Arguments }
 primary  =  _{ Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
 
@@ -122,7 +122,7 @@ add_op       = { "+" | "-" }
 unary_add_op = { "+" | "-" }
 mul_op       = { "*" | "/" }
 default_op   = { "*" }
-not_op       = { !("!~" | "!=") ~ "!" }
+not_op       = { "!" }
 
 Comprehension = { Clauses ~ StructLit }
 
