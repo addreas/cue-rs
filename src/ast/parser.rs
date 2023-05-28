@@ -7,7 +7,7 @@ use pest::{
 use std::vec;
 use std::result::Result;
 
-use crate::ast;
+use crate::{ast, txtar};
 
 #[derive(Parser)]
 #[grammar = "./ast/cue.pest"]
@@ -370,6 +370,7 @@ impl CUEParser {
             [bool_lit(l)] => ast::BasicLit::Bool(l),
             [null_lit(l)] => l,
             [bottom_lit(l)] => l,
+            [String(l)] => l?,
         }))
     }
     fn OperandName(input: Pair<Rule>) -> Result<ast::Expr, Error> {
@@ -426,14 +427,14 @@ impl CUEParser {
             })
             .map_infix(|lhs, op, rhs| Ok(ast::Expr::binary_expr(lhs?, binary_op(op)?, rhs?)))
             .map_postfix(|lhs, op| {
-                Ok(match_pairs!(op.into_inner(), {
-                    [Selector(sel)] => ast::Expr::selector(lhs?, sel?),
-                    [Index(i)] => ast::Expr::index(lhs?, i?),
-                    [Slice(s)] => {
+                Ok(match_pair!(op, {
+                    Selector(sel) => ast::Expr::selector(lhs?, sel?),
+                    Index(i) => ast::Expr::index(lhs?, i?),
+                    Slice(s) => {
                         let (lo, hi) = s?;
                         ast::Expr::slice(lhs?, lo, hi)
                     },
-                    [Arguments(args)] => ast::Expr::call(lhs?, args?),
+                    Arguments(args) => ast::Expr::call(lhs?, args?),
                 }))
             })
             .parse(input.into_inner())
@@ -918,4 +919,27 @@ fn test_expr() {
             parse_single!(Expression, "3").unwrap(),
         ))
     );
+}
+
+
+#[test]
+fn test_txtar_parse() {
+    use glob::glob;
+
+    for entry in glob("../../cue-lang/cue/cue/testdata/**/*.txtar").expect("Failed to read glob pattern") {
+        let path = match entry {
+            Ok(path) => path,
+            Err(e) => panic!("glob error: {:?}", e),
+        };
+
+        let filename = path.to_str().unwrap();
+
+        let txtar = txtar::parse_file(filename).expect("txtarparse is infallible, right?");
+
+        let cue_input = txtar.get_section("in.cue").unwrap();
+        println!("{}: in.cue:\n{}", filename, cue_input);
+
+        let parsed = parse_file(cue_input.as_str()).expect("should succeed");
+        // println!("parsed: {:#?}", parsed)
+    }
 }

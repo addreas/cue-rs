@@ -111,9 +111,8 @@ prefix   =  _{ not_op | default_op | unary_rel_op | unary_add_op }
 postfix  =  _{ Selector | Index | Slice | Arguments }
 primary  =  _{ Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
 
-// binary_op   = _{ disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op  }
-disjunct_op  = { "|" }
-conjuct_op   = { "&" }
+disjunct_op  = { !("||") ~ "|" }
+conjuct_op   = { !("&&") ~ "&" }
 or_op        = { "||" }
 and_op       = { "&&" }
 equal_op     = { "==" }
@@ -123,7 +122,7 @@ add_op       = { "+" | "-" }
 unary_add_op = { "+" | "-" }
 mul_op       = { "*" | "/" }
 default_op   = { "*" }
-not_op       = { "!" }
+not_op       = { !("!~" | "!=") ~ "!" }
 
 Comprehension = { Clauses ~ StructLit }
 
