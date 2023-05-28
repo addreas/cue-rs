@@ -76,21 +76,15 @@ pub enum BasicLit {
     Bool(bool),
     Int(i64),
     Float(f64),
-    String(String),
-    Bytes(String),
+    String(Vec<String>, Vec<Expr>),
+    Bytes(Vec<String>, Vec<Expr>),
     // Duration,
 }
-
-// #[derive(Debug, PartialEq, Clone)]
-// pub struct BasicLit {
-//     pub kind: BasicLitType<'a>,
-//     pub value: String,
-// }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ImportSpec {
     pub alias: Ident,
-    pub path: BasicLit,
+    pub path: String,
     pub package: Option<Ident>,
 }
 
@@ -142,17 +136,14 @@ pub struct StructLit {
     pub elements: Vec<Declaration>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Interpolation {
-    pub is_bytes: bool,
-    pub elements: Vec<Expr>,
-}
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Label {
+    // TODO: optionals
     Ident(Ident),
     Alias(Alias),
-    Basic(Interpolation),
+    String(BasicLit),
     Paren(Expr),
     Bracket(Expr),
 }
@@ -164,11 +155,11 @@ impl Label {
     pub fn alias(ident: Ident, expr: Expr) -> Self {
         Self::Alias(Alias { ident, expr })
     }
-    pub fn basic(elements: Vec<Expr>) -> Self {
-        Self::Basic(Interpolation {
-            is_bytes: false,
-            elements,
-        })
+    pub fn string(s: String) -> Self {
+        Self::String(BasicLit::String(vec![s], vec![]))
+    }
+    pub fn string_interpolation(strings: Vec<String>, interpolations: Vec<Expr>) -> Self {
+        Self::String(BasicLit::String(strings, interpolations))
     }
     pub fn paren(x: Expr) -> Self {
         Self::Paren(x)
@@ -297,7 +288,6 @@ pub enum Expr {
     Ident(Ident),
     QualifiedIdent(Ident, Ident),
     BasicLit(BasicLit),
-    Interpolation(Interpolation),
     Struct(StructLit),
     List(ListLit),
     Ellipsis(Box<Ellipsis>),
@@ -311,23 +301,17 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn string(x: String) -> Self {
-        Self::BasicLit(BasicLit::String(x))
+    pub fn basic_string(x: String) -> Self {
+        Self::BasicLit(BasicLit::String(vec![x], vec![]))
     }
-    pub fn string_interpolation(elements: Vec<Expr>) -> Self {
-        Self::Interpolation(Interpolation {
-            is_bytes: false,
-            elements,
-        })
+    pub fn string_interpolation(strings: Vec<String>, interpolations: Vec<Expr>) -> Self {
+        Self::BasicLit(BasicLit::String(strings, interpolations))
     }
-    pub fn bytes(x: String) -> Self {
-        Self::BasicLit(BasicLit::Bytes(x))
+    pub fn basic_bytes(x: String) -> Self {
+        Self::BasicLit(BasicLit::Bytes(vec![x], vec![]))
     }
-    pub fn bytes_interpolation(elements: Vec<Expr>) -> Self {
-        Self::Interpolation(Interpolation {
-            is_bytes: true,
-            elements,
-        })
+    pub fn bytes_interpolation(strings: Vec<String>, interpolations: Vec<Expr>) -> Self {
+        Self::BasicLit(BasicLit::Bytes(strings, interpolations))
     }
     pub fn int(x: i64) -> Self {
         Self::BasicLit(BasicLit::Int(x))
@@ -408,5 +392,5 @@ impl Expr {
 }
 
 pub fn new_str<'a>(s: String) -> Expr {
-    Expr::BasicLit(BasicLit::String(s))
+    Expr::BasicLit(BasicLit::String(vec![s], vec![]))
 }
