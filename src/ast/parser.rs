@@ -251,10 +251,10 @@ impl CUEParser {
     fn null_lit(_: Pair<Rule>) -> ast::BasicLit {
         ast::BasicLit::Null
     }
-    fn bool_lit(input: Pair<Rule>) -> Result<bool, Error> {
+    fn bool_lit(input: Pair<Rule>) -> bool {
         match input.as_str() {
-            "true" => Ok(true),
-            "false" => Ok(false),
+            "true" => true,
+            "false" => false,
             _ => unreachable!(),
         }
     }
@@ -271,7 +271,7 @@ impl CUEParser {
             [Field(f)] => ast::Declaration::Field(f?),
             [Ellipsis(e)] => ast::Declaration::Ellipsis(e?),
             [Embedding(e)] => ast::Declaration::Embedding(e?),
-            [attribute(e)] => ast::Declaration::Attribute(e?),
+            [attribute(e)] => ast::Declaration::Attribute(e),
         }))
     }
     fn Ellipsis(input: Pair<Rule>) -> Result<ast::Ellipsis, Error> {
@@ -291,7 +291,7 @@ impl CUEParser {
         let mut ls = CUEParser::Labels(inner.next().unwrap())?;
         let value = CUEParser::AliasExpr(inner.next().unwrap())?;
 
-        let attributes: Vec<_> = inner.map(|p| CUEParser::attribute(p).unwrap()).collect();
+        let attributes: Vec<_> = inner.map(|p| CUEParser::attribute(p)).collect();
 
         let mut lsi = ls.iter_mut();
         let init = ast::Field {
@@ -329,10 +329,10 @@ impl CUEParser {
             [SimpleString(s)] => ast::Label::String(s?)
         }))
     }
-    fn attribute(input: Pair<Rule>) -> Result<ast::Attribute, Error> {
-        Ok(ast::Attribute {
+    fn attribute(input: Pair<Rule>) -> ast::Attribute {
+        ast::Attribute {
             text: input.as_str().to_string(),
-        })
+        }
     }
     fn AliasExpr(input: Pair<Rule>) -> Result<ast::Expr, Error> {
         Ok(match_pairs!(input.into_inner(), {
@@ -367,7 +367,7 @@ impl CUEParser {
         Ok(match_pairs!(input.into_inner(), {
             [int_lit(l)] => ast::BasicLit::Int(l?),
             [float_lit(l)] => ast::BasicLit::Float(l?),
-            [bool_lit(l)] => ast::BasicLit::Bool(l?),
+            [bool_lit(l)] => ast::BasicLit::Bool(l),
             [null_lit(l)] => l,
             [bottom_lit(l)] => l,
         }))
@@ -380,7 +380,7 @@ impl CUEParser {
     }
     fn QualifiedIdent(input: Pair<Rule>) -> Result<ast::Expr, Error> {
         Ok(match_pairs!(input.into_inner(), {
-            [PackageName(p), identifier(i)] => ast::Expr::QualifiedIdent(p?, i)
+            [PackageName(p), identifier(i)] => ast::Expr::QualifiedIdent(p, i)
         }))
     }
     fn Selector(input: Pair<Rule>) -> Result<ast::Label, Error> {
@@ -494,11 +494,11 @@ impl CUEParser {
             [identifier(i), Expression(e)] => ast::Clause::Let(ast::LetClause { alias: i, value: e? })
         }))
     }
-    fn PackageClause(input: Pair<Rule>) -> Result<ast::Ident, Error> {
+    fn PackageClause(input: Pair<Rule>) -> ast::Ident {
         CUEParser::PackageName(input) // todo: into inner
     }
-    fn PackageName(input: Pair<Rule>) -> Result<ast::Ident, Error> {
-        Ok(CUEParser::identifier(input)) // todo: into inner
+    fn PackageName(input: Pair<Rule>) -> ast::Ident {
+        CUEParser::identifier(input) // todo: into inner
     }
     fn ImportDecl(input: Pair<Rule>) -> Result<ast::Declaration, Error> {
         input
@@ -510,7 +510,7 @@ impl CUEParser {
     fn ImportSpec(input: Pair<Rule>) -> Result<ast::ImportSpec, Error> {
         Ok(match_pairs!(input.into_inner(), {
             [PackageName(alias), ImportPath(path)] => ast::ImportSpec {
-                alias: alias?,
+                alias: alias,
                 path: path.0,
                 package: path.1,
             }
@@ -532,15 +532,14 @@ impl CUEParser {
             attributes: children
                 .clone()
                 .filter_map(|n| match n.as_rule() {
-                    Rule::attribute => CUEParser::attribute(n).ok(),
+                    Rule::attribute => Some(CUEParser::attribute(n)),
                     _ => None,
                 })
                 .collect(),
             package: children
                 .clone()
                 .find(|n| n.as_rule() == Rule::PackageClause)
-                .map(|n| CUEParser::PackageClause(n))
-                .transpose()?,
+                .map(|n| CUEParser::PackageClause(n)),
             imports: children
                 .clone()
                 .filter_map(|n| match n.as_rule() {
