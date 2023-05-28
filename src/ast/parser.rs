@@ -47,7 +47,7 @@ macro_rules! match_pair {
                         $body
                     }
                 ),*
-                _ => unreachable!("rule unreachable: {:?}", $expression),
+                _ => unreachable!("rule unreachable: {:#?}", $expression),
             }
         }
     }
@@ -73,7 +73,7 @@ macro_rules! match_pairs {
                         $body
                     }
                 ),*
-                _ => unreachable!("rule unreachable: {:?}", mutval),
+                _ => unreachable!("rule unreachable: {:#?}", mutval),
             }
         }
     };
@@ -341,9 +341,11 @@ impl CUEParser {
         }))
     }
     fn ListLit(input: Pair<Rule>) -> Result<ast::ListLit, Error> {
-        Ok(ast::ListLit {
-            elements: CUEParser::ElementList(input)?, // todo: into inner
-        })
+        let elements = match input.into_inner().next() {
+            Some(l) => CUEParser::ElementList(l)?,
+            None => vec![],
+        };
+        Ok(ast::ListLit { elements })
     }
     fn ElementList(input: Pair<Rule>) -> Result<Vec<ast::Expr>, Error> {
         input
