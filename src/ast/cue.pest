@@ -66,7 +66,7 @@ bottom_lit = { "_|_" }
 null_lit   = { "null" }
 bool_lit   = { "true" | "false" }
 
-StructLit       = { "{" ~ ( Declaration ~ "," )* ~ Declaration? ~ "}" }
+StructLit       = { "{" ~ ( Declaration ~ ","? )* ~ Declaration? ~ "}" } // TODO: require newline when omitting comma ("," | "\n") instead of ","?
 Declaration     = { Field | Ellipsis | Embedding | attribute }
 Ellipsis        = { "..." ~ Expression? }
 Embedding       = { Comprehension | AliasExpr }
@@ -86,7 +86,7 @@ attr_tokens     = { ( attr_token
                      )* }
 attr_token      = { !( "(" | ")" | "[" | "]" | "{" | "}" ) ~ ANY }
 
-AliasExpr  = { ( identifier ~ "=" )? ~ Expression }
+AliasExpr  = { ( identifier ~ !("==") ~ "=" )? ~ Expression }
 
 ListLit       = { "[" ~ ( ElementList ~ ","? )? ~ "]" }
 ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellipsis )? ) }
@@ -106,18 +106,18 @@ Arguments      = { "(" ~ ( ( Argument ~ ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
 
 Expression = { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix* )* }
 
-infix    =  _{ disjunct_op | conjuct_op | or_op | and_op | equal_op | rel_op | add_op | mul_op }
+infix    =  _{ or_op | and_op | disjunct_op | conjuct_op | equal_op | rel_op | add_op | mul_op }
 prefix   =  _{ not_op | default_op | unary_rel_op | unary_add_op }
 postfix  =  _{ Selector | Index | Slice | Arguments }
 primary  =  _{ Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
 
-disjunct_op  = { !("||") ~ "|" }
-conjuct_op   = { !("&&") ~ "&" }
+disjunct_op  = { "|" }
+conjuct_op   = { "&" }
 or_op        = { "||" }
 and_op       = { "&&" }
 equal_op     = { "==" }
-rel_op       = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
-unary_rel_op = { "!=" | "<" | "<=" | ">" | ">=" | "=~" | "!~" }
+rel_op       = { "!=" | "=~" | "!~" | "<=" | ">=" | "<" | ">" }
+unary_rel_op = { "!=" | "=~" | "!~" | "<=" | ">=" | "<" | ">" }
 add_op       = { "+" | "-" }
 unary_add_op = { "+" | "-" }
 mul_op       = { "*" | "/" }
