@@ -27,9 +27,10 @@ hex_lit     = @{ "0" ~ ( "x" | "X" ) ~ hex_digit ~ ("_"? ~ hex_digit )* }
 multiplier  = @{ ("K" | "M" | "G" | "T" | "P" ) ~ "i"? }
 exponent    = ${ ("e" | "E") ~ decimal_lit}
 
-int_lit     = ${ si_lit | decimal_lit  | octal_lit | binary_lit | hex_lit }
-float_lit   = ${ (decimal_lit ~ ("." ~ fraction)? ~ exponent?)
-               | ("." ~ fraction ~ exponent? )
+int_lit     = ${ si_lit | decimal_lit | octal_lit | binary_lit | hex_lit }
+float_lit   = ${ ( decimal_lit ~ ("." ~ fraction) ~ exponent? )
+               | ( decimal_lit ~ exponent )
+               | ( "." ~ fraction ~ exponent? )
                }
 
 escape_sequence  = @{ "\\" ~ PEEK[0..1] }
@@ -43,24 +44,27 @@ unicode_value    = ${ !(PEEK_ALL | escape_sequence) ~ unicode_char | little_u_va
 byte_value       = ${ octal_byte_value | hex_byte_value }
 ending_indent    = @{ (" " | "\t")* }
 
-String       = { PUSH("#"*) ~ ( SimpleString
-                              | MultilineString
-                              | SimpleBytes
-                              | MultilineBytes
-                              ) ~ POP }
+string_lit = { PUSH("#"*) ~
+                          ( multiline_string_lit
+                          | simple_string_lit
+                          | multiline_bytes_lit
+                          | simple_bytes_lit
+                          )
+             ~ POP
+             }
 
-SimpleString    = ${ !("\""{3}) ~ PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP }
-SimpleBytes     = ${ !("'"{3})  ~ PUSH("'")  ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
-MultilineString = ${ PUSH("\"\"\"")
-                  ~ "\n"
-                  ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | newline) )*
-                  ~ "\n"
-                  ~ ending_indent ~ POP }
-MultilineBytes  = ${ PUSH("'''")
-                  ~ "\n"
-                  ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | byte_value | newline) )*
-                  ~ "\n"
-                  ~ ending_indent ~ POP }
+simple_string_lit    = ${ PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP }
+simple_bytes_lit     = ${ PUSH("'")  ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
+multiline_string_lit = ${ PUSH("\"\"\"")
+                        ~ "\n"
+                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | newline) )*
+                        ~ "\n"
+                        ~ ending_indent ~ POP }
+multiline_bytes_lit  = ${ PUSH("'''")
+                        ~ "\n"
+                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | byte_value | newline) )*
+                        ~ "\n"
+                        ~ ending_indent ~ POP }
 
 bottom_lit = { "_|_" }
 null_lit   = { "null" }
@@ -70,13 +74,14 @@ StructLit       = { "{" ~ ( Declaration ~ ","? )* ~ Declaration? ~ "}" } // TODO
 Declaration     = { Field | Ellipsis | Embedding | attribute }
 Ellipsis        = { "..." ~ Expression? }
 Embedding       = { Comprehension | AliasExpr }
-Field           = { Labels ~ AliasExpr ~ attribute* }
+Field           = { Labels ~ AliasExpr  ~ attribute* ~ ","? } // todo: should the  comma be here instead?
 Labels          = { ( Label ~ ":" )+ }
-Label           = { ( LabelName ~ "?"? )
+Label           = { ( identifier ~ !(equal_op) ~ "=" )? ~ LabelExpr }
+LabelExpr       = { ( LabelName ~ ("?" | "!")? )
                   | ( "[" ~ AliasExpr ~ "]" )
                   | ( "(" ~ Expression ~ ")" )
                   }
-LabelName       = { identifier | SimpleString  }
+LabelName       = { identifier | simple_string_lit  }
 
 attribute       = { "@" ~ identifier ~ "(" ~ attr_tokens ~ ")" }
 attr_tokens     = { ( attr_token
@@ -93,14 +98,16 @@ ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellips
 
 Literal     = { BasicLit | ListLit | StructLit }
 
-BasicLit    = { int_lit | float_lit | String | null_lit | bool_lit | bottom_lit }
+BasicLit    = { float_lit | int_lit | string_lit | null_lit | bool_lit | bottom_lit }
 OperandName = { identifier | QualifiedIdent }
 
 QualifiedIdent = { PackageName ~ "." ~ identifier }
 
-Selector       = { "." ~ ( identifier | SimpleString ) }
+Selector       = { "." ~ ( identifier | simple_string_lit ) }
 Index          = { "[" ~ Expression ~ "]" }
-Slice          = { "[" ~ Expression? ~ ":" ~ Expression? ~ "]" }
+Slice          = { "[" ~ slice_low? ~ ":" ~ slice_high? ~ "]" }
+slice_low      = { Expression }
+slice_high     = { Expression }
 Argument       = { Expression }
 Arguments      = { "(" ~ ( ( Argument ~ ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
 

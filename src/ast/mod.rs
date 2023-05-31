@@ -66,7 +66,7 @@ impl Ident {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Ellipsis {
-    pub inner: Expr,
+    pub inner: Option<Expr>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -83,7 +83,7 @@ pub enum BasicLit {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ImportSpec {
-    pub alias: Ident,
+    pub alias: Option<Ident>,
     pub path: String,
     pub package: Option<Ident>,
 }
@@ -142,7 +142,7 @@ pub struct StructLit {
 pub enum Label {
     // TODO: optionals
     Ident(Ident),
-    Alias(Alias),
+    Alias(Ident, Box<Label>), // todo: better representation of this?
     String(BasicLit),
     Paren(Expr),
     Bracket(Expr),
@@ -152,8 +152,8 @@ impl Label {
     pub fn ident(x: Ident) -> Self {
         Self::Ident(x)
     }
-    pub fn alias(ident: Ident, expr: Expr) -> Self {
-        Self::Alias(Alias { ident, expr })
+    pub fn alias(ident: Ident, expr: Label) -> Self {
+        Self::Alias(ident, Box::new(expr))
     }
     pub fn string(s: String) -> Self {
         Self::String(BasicLit::String(vec![s], vec![]))
@@ -206,7 +206,7 @@ impl Declaration {
     pub fn comprehension(clauses: Vec<Clause>, expr: Expr) -> Self {
         Self::Comprehension(Comprehension { clauses, expr })
     }
-    pub fn ellipsis(inner: Expr) -> Self {
+    pub fn ellipsis(inner: Option<Expr>) -> Self {
         Self::Ellipsis(Ellipsis { inner })
     }
     pub fn let_clause(alias: Ident, value: Expr) -> Self {
@@ -271,8 +271,8 @@ pub struct Index {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Slice {
     source: Box<Expr>,
-    low: Box<Expr>,
-    high: Box<Expr>,
+    low: Option<Box<Expr>>,
+    high: Option<Box<Expr>>,
 }
 #[derive(Debug, PartialEq, Clone)]
 pub struct Call {
@@ -343,7 +343,7 @@ impl Expr {
     pub fn list(elements: Vec<Expr>) -> Self {
         Self::List(ListLit { elements })
     }
-    pub fn ellipsis(inner: Expr) -> Self {
+    pub fn ellipsis(inner: Option<Expr>) -> Self {
         Self::Ellipsis(Box::new(Ellipsis { inner }))
     }
     pub fn unary_expr<'a>(op: Operator, child: Expr) -> Self {
@@ -376,11 +376,11 @@ impl Expr {
             index: Box::new(index),
         })
     }
-    pub fn slice(source: Expr, low: Expr, high: Expr) -> Self {
+    pub fn slice(source: Expr, low: Option<Expr>, high: Option<Expr>) -> Self {
         Self::Slice(Slice {
             source: Box::new(source),
-            low: Box::new(low),
-            high: Box::new(high),
+            low: low.map(|l| Box::new(l)),
+            high: high.map(|h| Box::new(h)),
         })
     }
     pub fn call(source: Expr, args: Vec<Expr>) -> Self {
