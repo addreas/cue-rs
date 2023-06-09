@@ -687,44 +687,6 @@ fn binary_op(input: Pair<Rule>) -> Result<ast::Operator, Error> {
 }
 use regex::Regex;
 
-/*
-
-
-The formal grammar uses commas , as terminators in a number of productions. CUE programs may omit most of these commas using the following rules:
-
-When the input is broken into tokens, a comma is automatically inserted into the token stream immediately after a line’s final token if that token is
-
-    an identifier, keyword, or bottom
-    a number or string literal, including an interpolation
-    one of the characters ), ], }, or ?
-    an ellipsis ...
-
- */
-
-pub fn insert_commas(input: &str) -> String {
-    let re = Regex::new(r#"(?x)
-    (?P<thing>
-     (_?\#?_?[a-zA-Z_$][\w$]*)
-     |(\d+(\.\d+)?)
-     |((K|M|G|T|P)i?)
-     |(_\|_)
-     |"
-     |'
-     |\)
-     |\]
-     |\}
-     |\?
-     |\.\.\.
-    )
-    (?P<comment>
-        (\t|\x20)+//.*(?x)
-    )?
-    (?P<end>\n|$)
-    "#).unwrap();
-
-    re.replace_all(input, "$thing,$comment$end").into()
-}
-
 #[allow(unused_macros)]
 macro_rules! parse_single {
     ($rule:ident, $input:expr) => {
@@ -1023,10 +985,7 @@ fn test_txtar_parse() {
         if let Some(cue_input) = txtar.get_section("in.cue") {
             println!("{}: in.cue:\n{}", filename, cue_input);
 
-            let replaced = insert_commas(cue_input.as_str());
-            println!("{}: replaced.cue:\n{}", filename, replaced);
-
-            let parsed = parse_file(replaced.as_str()).expect("should succeed");
+            let parsed = parse_file(&cue_input.as_str()).expect("should succeed");
         }
         // println!("parsed: {:#?}", parsed)
     }

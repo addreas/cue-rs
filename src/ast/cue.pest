@@ -39,7 +39,7 @@ octal_byte_value = ${ escape_sequence ~ octal_digit{3} }
 hex_byte_value   = ${ escape_sequence ~ "x" ~ hex_digit{2} }
 little_u_value   = ${ escape_sequence ~ "u" ~ hex_digit{4} }
 big_u_value      = ${ escape_sequence ~ "U" ~ hex_digit{8} }
-Interpolation    = !{ escape_sequence ~ "(" ~ Expression ~ ")" }
+Interpolation    = !{ escape_sequence ~ "(" ~ nl ~ Expression ~ ")" }
 unicode_value    = ${ !(PEEK_ALL | escape_sequence) ~ unicode_char | little_u_value | big_u_value | escaped_char }
 byte_value       = ${ octal_byte_value | hex_byte_value }
 ending_indent    = @{ (" " | "\t")* }
@@ -70,16 +70,16 @@ bottom_lit = { "_|_" }
 null_lit   = { "null" }
 bool_lit   = { "true" | "false" }
 
-StructLit       = { "{" ~ ( Declaration ~ "," )* ~ Declaration? ~ ","? ~ "}" }
+StructLit       = { "{" ~ nl ~ ( Declaration ~ nlc ~ nl )* ~ Declaration? ~ nlc? ~ nl ~ "}" }
 Declaration     = { LetClause | Field | Ellipsis | Embedding | attribute }
 Ellipsis        = { "..." ~ Expression? }
 Embedding       = { Comprehension | AliasExpr }
-Field           = { Labels ~ AliasExpr  ~ attribute* }
-Labels          = { ( Label ~ ":" )+ }
-Label           = { ( identifier ~ !(equal_op) ~ "=" )? ~ LabelExpr }
+Field           = { Labels ~ nl ~ AliasExpr ~ attribute* }
+Labels          = { ( Label ~ nl ~ ":" ~ nl )+ }
+Label           = { ( identifier ~ !(equal_op) ~ "=" )? ~ nl ~ LabelExpr ~ nl }
 LabelExpr       = { ( LabelName ~ ("?" | "!")? )
-                  | ( "[" ~ AliasExpr ~ "]" )
-                  | ( "(" ~ Expression ~ ")" )
+                  | ( "[" ~ nl ~ AliasExpr ~ nl ~ "]" )
+                  | ( "(" ~ nl ~ Expression ~ nl ~ ")" ~ ("?" | "!")? )
                   }
 LabelName       = { identifier | simple_string_lit  }
 
@@ -91,10 +91,10 @@ attr_tokens     = { ( attr_token
                      )* }
 attr_token      = { !( "(" | ")" | "[" | "]" | "{" | "}" ) ~ ANY }
 
-AliasExpr  = { ( identifier ~ !(equal_op) ~ "=" )? ~ Expression } // TODO: could the grammar be tweaked to not require that !(equal_op)?
+AliasExpr  = { ( identifier ~ !(equal_op) ~ "=" )? ~ nl ~ Expression } // TODO: could the grammar be tweaked to not require that !(equal_op)?
 
-ListLit       = { "[" ~ ( ElementList ~ ","? )? ~ "]" }
-ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellipsis )? ) }
+ListLit       = { "[" ~ nl ~ ( ElementList ~ nlc? )? ~ nl ~ "]" }
+ElementList   = { Ellipsis | ( Embedding ~ ( nlc ~ Embedding )* ~ ( nlc ~ Ellipsis )? ) }
 
 Literal     = { BasicLit | ListLit | StructLit }
 
@@ -104,14 +104,14 @@ OperandName = { identifier | QualifiedIdent }
 QualifiedIdent = { PackageName ~ "." ~ identifier }
 
 Selector       = { "." ~ ( identifier | simple_string_lit ) }
-Index          = { "[" ~ Expression ~ "]" }
-Slice          = { "[" ~ slice_low? ~ ":" ~ slice_high? ~ "]" }
+Index          = { "[" ~ nl ~ Expression ~ nl ~ "]" }
+Slice          = { "[" ~ nl ~ slice_low? ~ nl ~ ":" ~ nl ~ slice_high? ~ nl ~ "]" }
 slice_low      = { Expression }
 slice_high     = { Expression }
 Argument       = { Expression }
-Arguments      = { "(" ~ ( ( Argument ~ ( "," ~ Argument )* ) ~ ","? )? ~ ")" }
+Arguments      = { "(" ~ nl ~ ( ( Argument ~ ( nlc ~ Argument )* ) ~ nlc? )? ~ nl ~ ")" }
 
-Expression = { prefix* ~ primary ~ postfix* ~ (infix ~ prefix* ~ primary ~ postfix* )* }
+Expression = { prefix* ~ primary ~ postfix* ~ (infix ~ nl ~ prefix* ~ primary ~ postfix* )* }
 
 infix    =  _{ or_op | and_op | disjunct_op | conjuct_op | equal_op | rel_op | add_op | mul_op }
 prefix   =  _{ unary_rel_op | unary_add_op | not_op | default_op }
@@ -133,7 +133,7 @@ not_op       = { "!" }
 
 Comprehension = { Clauses ~ StructLit }
 
-Clauses       = { StartClause ~ ( ","? ~ Clause )* }
+Clauses       = { StartClause ~ ( nlc? ~ Clause )* }
 StartClause   = { ForClause | GuardClause }
 Clause        = { StartClause | LetClause }
 ForClause     = { "for" ~ identifier ~ ( "," ~ identifier )? ~ "in" ~ Expression }
@@ -143,18 +143,21 @@ LetClause     = { "let" ~ identifier ~ "=" ~ Expression }
 PackageClause = { "package" ~ PackageName }
 PackageName   = { identifier }
 
-ImportDecl     = { "import" ~ ( ImportSpec | ("(" ~ ImportSpec* ~ ")") ) }
+ImportDecl     = { "import" ~ ( ImportSpec | ("(" ~ nl ~ ImportSpec* ~ nl ~ ")") ) }
 ImportSpec     = { PackageName? ~ ImportPath }
 ImportLocation = { unicode_value* }
 ImportPath     = { PUSH("\"") ~ ImportLocation ~ (":" ~ identifier)? ~ POP }
 
 SourceFile = { SOI
-             ~ (attribute ~ ",")*
-             ~ (PackageClause ~ ",")?
-             ~ (ImportDecl ~ ",")*
-             ~ (Declaration ~ ",")*
+             ~ (attribute ~ nlc)*
+             ~ (PackageClause ~ nlc)?
+             ~ (ImportDecl ~ nlc)*
+             ~ (Declaration ~ nlc)*
              ~ EOI
              }
 
-WHITESPACE = _{ " " | "\t" | "\n" }
-COMMENT = _{ "//" ~ (!newline ~ ANY)* ~ (newline | EOI) }
+nl  = _{ "\n"* }
+nlc = _{ "\n" | "," | EOI }
+
+WHITESPACE = _{ " " | "\t" }
+COMMENT = _{ "//" ~ (!newline ~ ANY)* }
