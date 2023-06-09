@@ -27,7 +27,7 @@ hex_lit     = @{ "0" ~ ( "x" | "X" ) ~ hex_digit ~ ("_"? ~ hex_digit )* }
 multiplier  = @{ ("K" | "M" | "G" | "T" | "P" ) ~ "i"? }
 exponent    = ${ ("e" | "E") ~ decimal_lit}
 
-int_lit     = ${ si_lit | decimal_lit | octal_lit | binary_lit | hex_lit }
+int_lit     = ${ decimal_lit | octal_lit | binary_lit | hex_lit }
 float_lit   = ${ ( decimal_lit ~ ("." ~ fraction) ~ exponent? )
                | ( decimal_lit ~ exponent )
                | ( "." ~ fraction ~ exponent? )
@@ -56,25 +56,25 @@ string_lit = { PUSH("#"*) ~
 simple_string_lit    = ${ PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP }
 simple_bytes_lit     = ${ PUSH("'")  ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
 multiline_string_lit = ${ PUSH("\"\"\"")
-                        ~ "\n"
-                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | newline) )*
-                        ~ "\n"
-                        ~ ending_indent ~ POP }
+                        ~ newline
+                        ~ ( !(newline ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | newline) )*
+                        ~ newline ~ ending_indent ~ POP
+                        }
 multiline_bytes_lit  = ${ PUSH("'''")
-                        ~ "\n"
-                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | byte_value | newline) )*
-                        ~ "\n"
-                        ~ ending_indent ~ POP }
+                        ~ newline
+                        ~ ( !(newline ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | byte_value | newline) )*
+                        ~ newline ~ ending_indent ~ POP
+                        }
 
 bottom_lit = { "_|_" }
 null_lit   = { "null" }
 bool_lit   = { "true" | "false" }
 
-StructLit       = { "{" ~ ( Declaration ~ ","? )* ~ Declaration? ~ "}" } // TODO: require newline when omitting comma ("," | "\n") instead of ","?
-Declaration     = { Field | Ellipsis | Embedding | attribute }
+StructLit       = { "{" ~ ( Declaration ~ "," )* ~ Declaration? ~ ","? ~ "}" }
+Declaration     = { LetClause | Field | Ellipsis | Embedding | attribute }
 Ellipsis        = { "..." ~ Expression? }
 Embedding       = { Comprehension | AliasExpr }
-Field           = { Labels ~ AliasExpr  ~ attribute* ~ ","? } // todo: should the  comma be here instead?
+Field           = { Labels ~ AliasExpr  ~ attribute* }
 Labels          = { ( Label ~ ":" )+ }
 Label           = { ( identifier ~ !(equal_op) ~ "=" )? ~ LabelExpr }
 LabelExpr       = { ( LabelName ~ ("?" | "!")? )
@@ -98,7 +98,7 @@ ElementList   = { Ellipsis | ( Embedding ~ ( "," ~ Embedding )* ~ ( "," ~ Ellips
 
 Literal     = { BasicLit | ListLit | StructLit }
 
-BasicLit    = { float_lit | int_lit | string_lit | null_lit | bool_lit | bottom_lit }
+BasicLit    = { si_lit | float_lit | int_lit | string_lit | null_lit | bool_lit | bottom_lit }
 OperandName = { identifier | QualifiedIdent }
 
 QualifiedIdent = { PackageName ~ "." ~ identifier }
@@ -127,7 +127,7 @@ rel_op       = { "!=" | "=~" | "!~" | "<=" | ">=" | "<" | ">" }
 unary_rel_op = { "!=" | "=~" | "!~" | "<=" | ">=" | "<" | ">" }
 add_op       = { "+" | "-" }
 unary_add_op = { "+" | "-" }
-mul_op       = { "*" | "/" }
+mul_op       = { "*" | "/" | "div" | "mod" | "quo" | "rem" }
 default_op   = { "*" }
 not_op       = { "!" }
 
@@ -150,9 +150,9 @@ ImportPath     = { PUSH("\"") ~ ImportLocation ~ (":" ~ identifier)? ~ POP }
 
 SourceFile = { SOI
              ~ (attribute ~ ",")*
-             ~ (PackageClause)?
-             ~ (ImportDecl)*
-             ~ (Declaration)*
+             ~ (PackageClause ~ ",")?
+             ~ (ImportDecl ~ ",")*
+             ~ (Declaration ~ ",")*
              ~ EOI
              }
 

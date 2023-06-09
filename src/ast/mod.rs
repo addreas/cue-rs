@@ -33,6 +33,11 @@ pub enum Operator {
 
     Match,    // =~
     NotMatch, // !~
+
+    Div,
+    Mod,
+    Quo,
+    Rem,
 }
 
 #[derive(Debug, PartialEq, Clone)]

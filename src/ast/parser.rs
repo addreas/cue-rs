@@ -160,7 +160,6 @@ impl CUEParser {
     fn int_lit(input: Pair<Rule>) -> Result<i64, Error> {
         match_pairs!(input.into_inner(), {
             [decimal_lit(n)] => n,
-            [si_lit(n)] => n,
             [binary_lit(n)] => n,
             [octal_lit(n)] => n,
             [hex_lit(n)] => n,
@@ -268,6 +267,7 @@ impl CUEParser {
     }
     fn Declaration(input: Pair<Rule>) -> Result<ast::Declaration, Error> {
         Ok(match_pairs!(input.into_inner(), {
+            [LetClause(e)] => ast::Declaration::LetClause(e?),
             [Field(f)] => ast::Declaration::Field(f?),
             [Ellipsis(e)] => ast::Declaration::Ellipsis(e?),
             [Embedding(e)] => ast::Declaration::Embedding(e?),
@@ -373,8 +373,9 @@ impl CUEParser {
     }
     fn BasicLit(input: Pair<Rule>) -> Result<ast::BasicLit, Error> {
         Ok(match_pairs!(input.into_inner(), {
-            [int_lit(l)] => ast::BasicLit::Int(l?),
+            [si_lit(l)] => ast::BasicLit::Int(l?),
             [float_lit(l)] => ast::BasicLit::Float(l?),
+            [int_lit(l)] => ast::BasicLit::Int(l?),
             [bool_lit(l)] => ast::BasicLit::Bool(l),
             [null_lit(l)] => l,
             [bottom_lit(l)] => l,
@@ -484,7 +485,7 @@ impl CUEParser {
     fn Clause(input: Pair<Rule>) -> Result<ast::Clause, Error> {
         Ok(match_pairs!(input.into_inner(), {
             [StartClause(sc)] => sc?,
-            [LetClause(lc)] => lc?
+            [LetClause(lc)] => ast::Clause::Let(lc?),
         }))
     }
     fn ForClause(input: Pair<Rule>) -> Result<ast::Clause, Error> {
@@ -506,9 +507,9 @@ impl CUEParser {
             input, // todo: into inner
         )?))
     }
-    fn LetClause(input: Pair<Rule>) -> Result<ast::Clause, Error> {
+    fn LetClause(input: Pair<Rule>) -> Result<ast::LetClause, Error> {
         Ok(match_pairs!(input.into_inner(), {
-            [identifier(i), Expression(e)] => ast::Clause::Let(ast::LetClause { alias: i, value: e? })
+            [identifier(i), Expression(e)] => ast::LetClause { alias: i, value: e? }
         }))
     }
     fn PackageClause(input: Pair<Rule>) -> ast::Ident {
@@ -663,6 +664,10 @@ fn mul_op(input: Pair<Rule>) -> Result<ast::Operator, Error> {
     match input.as_str() {
         "*" => Ok(ast::Operator::Multiply),
         "/" => Ok(ast::Operator::Divide),
+        "div" => Ok(ast::Operator::Div),
+        "mod" => Ok(ast::Operator::Mod),
+        "quo" => Ok(ast::Operator::Quo),
+        "rem" => Ok(ast::Operator::Rem),
         x => unreachable!("mul_op {}", x),
     }
 }
@@ -679,6 +684,45 @@ fn binary_op(input: Pair<Rule>) -> Result<ast::Operator, Error> {
         Rule::equal_op => Ok(ast::Operator::Equal),
         x => unreachable!("binary_op {:?}", x),
     }
+}
+use regex::Regex;
+
+/*
+
+
+The formal grammar uses commas , as terminators in a number of productions. CUE programs may omit most of these commas using the following rules:
+
+When the input is broken into tokens, a comma is automatically inserted into the token stream immediately after a line’s final token if that token is
+
+    an identifier, keyword, or bottom
+    a number or string literal, including an interpolation
+    one of the characters ), ], }, or ?
+    an ellipsis ...
+
+ */
+
+pub fn insert_commas(input: &str) -> String {
+    let re = Regex::new(r#"(?x)
+    (?P<thing>
+     (_?\#?_?[a-zA-Z_$][\w$]*)
+     |(\d+(\.\d+)?)
+     |((K|M|G|T|P)i?)
+     |(_\|_)
+     |"
+     |'
+     |\)
+     |\]
+     |\}
+     |\?
+     |\.\.\.
+    )
+    (?P<comment>
+        (\t|\x20)+//.*(?x)
+    )?
+    (?P<end>\n|$)
+    "#).unwrap();
+
+    re.replace_all(input, "$thing,$comment$end").into()
 }
 
 #[allow(unused_macros)]
@@ -955,19 +999,21 @@ fn test_txtar_parse() {
 
         let filename = path.to_str().unwrap();
 
-        if filename.contains("builtins/closed.txtar") // bracket label needs comma
-            || filename.contains("compile/labels.txtar") // actual syntax errro
-            || filename.contains("cycle/constraints.txtar") // bracket label needs comma
-            || filename.contains("cycle/patterns.txtar") // bracket label needs comma
-            || filename.contains("definitions/dynamic.txtar") // parens label needs comma
-            || filename.contains("eval/closedness.txtar") // parens label needs comma
+        if
+            // filename.contains("builtins/closed.txtar") // bracket label needs comma
+            // ||
+            filename.contains("compile/labels.txtar") // actual syntax errro
+            // || filename.contains("cycle/constraints.txtar") // bracket label needs comma
+            // || filename.contains("cycle/patterns.txtar") // bracket label needs comma
+            // || filename.contains("definitions/dynamic.txtar") // parens label needs comma
+            // || filename.contains("eval/closedness.txtar") // parens label needs comma
             || filename.contains("eval/comprehensions.txtar") // string literal inside interpolation
-            || filename.contains("eval/dynamic_field.txtar") // parens label needs comma
+            // || filename.contains("eval/dynamic_field.txtar") // parens label needs comma
             || filename.contains("eval/issue295.txtar") // string literal inside interpolation
             || filename.contains("export/028.txtar") // literal "#" label ?!
             || filename.contains("export/029.txtar") // literal "#" label ?!
             || filename.contains("fulleval/017_resolutions_in_struct_comprehension_keys.txtar") // string literal inside interpolation
-            || filename.contains("scalars/emptystruct.txtar") // leading ellipsis needs comma
+            // || filename.contains("scalars/emptystruct.txtar") // leading ellipsis needs comma
         {
             continue
         }
@@ -977,7 +1023,10 @@ fn test_txtar_parse() {
         if let Some(cue_input) = txtar.get_section("in.cue") {
             println!("{}: in.cue:\n{}", filename, cue_input);
 
-            let parsed = parse_file(cue_input.as_str()).expect("should succeed");
+            let replaced = insert_commas(cue_input.as_str());
+            println!("{}: replaced.cue:\n{}", filename, replaced);
+
+            let parsed = parse_file(replaced.as_str()).expect("should succeed");
         }
         // println!("parsed: {:#?}", parsed)
     }
