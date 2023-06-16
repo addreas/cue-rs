@@ -40,7 +40,7 @@ hex_byte_value   = ${ escape_sequence ~ "x" ~ hex_digit{2} }
 little_u_value   = ${ escape_sequence ~ "u" ~ hex_digit{4} }
 big_u_value      = ${ escape_sequence ~ "U" ~ hex_digit{8} }
 Interpolation    = !{ escape_sequence ~ "(" ~ nl ~ Expression ~ ")" }
-unicode_value    = ${ !(PEEK_ALL | escape_sequence) ~ unicode_char | little_u_value | big_u_value | escaped_char }
+unicode_value    = ${ little_u_value | big_u_value | escaped_char | !PEEK_ALL ~ unicode_char  }
 byte_value       = ${ octal_byte_value | hex_byte_value }
 ending_indent    = @{ (" " | "\t")* }
 
@@ -57,12 +57,12 @@ simple_string_lit    = ${ PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP 
 simple_bytes_lit     = ${ PUSH("'")  ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
 multiline_string_lit = ${ PUSH("\"\"\"")
                         ~ "\n" // literal "\n" to differentiate from `newline` inside of the string
-                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | newline) )*
+                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (Interpolation | unicode_value | newline) )*
                         ~ "\n" ~ ending_indent ~ POP
                         }
 multiline_bytes_lit  = ${ PUSH("'''")
                         ~ "\n" // literal "\n" to differentiate from `newline` inside of the string
-                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | byte_value | newline) )*
+                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (Interpolation | unicode_value | byte_value | newline) )*
                         ~ "\n" ~ ending_indent ~ POP
                         }
 
