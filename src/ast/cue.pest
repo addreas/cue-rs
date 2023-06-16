@@ -56,14 +56,14 @@ string_lit = { PUSH("#"*) ~
 simple_string_lit    = ${ PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP }
 simple_bytes_lit     = ${ PUSH("'")  ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
 multiline_string_lit = ${ PUSH("\"\"\"")
-                        ~ newline
-                        ~ ( !(newline ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | newline) )*
-                        ~ newline ~ ending_indent ~ POP
+                        ~ "\n" // literal "\n" to differentiate from `newline` inside of the string
+                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | newline) )*
+                        ~ "\n" ~ ending_indent ~ POP
                         }
 multiline_bytes_lit  = ${ PUSH("'''")
-                        ~ newline
-                        ~ ( !(newline ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | byte_value | newline) )*
-                        ~ newline ~ ending_indent ~ POP
+                        ~ "\n" // literal "\n" to differentiate from `newline` inside of the string
+                        ~ ( !("\n" ~ ending_indent ~ PEEK) ~ (unicode_value | Interpolation | byte_value | newline) )*
+                        ~ "\n" ~ ending_indent ~ POP
                         }
 
 bottom_lit = { "_|_" }
