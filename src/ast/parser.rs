@@ -746,9 +746,13 @@ fn test_int() {
     assert_eq!(parse_int("0"), Ok(0));
     assert_eq!(parse_int("100_000"), Ok(100_000));
     assert_eq!(parse_int("99"), Ok(99));
-    assert_eq!(parse_int("1K"), Ok(1000));
-    assert_eq!(parse_int("1.2K"), Ok(1200));
-    assert_eq!(parse_int("3Ki"), Ok(3 * 1024));
+}
+
+#[test]
+fn test_si() {
+    assert_eq!(parse_single!(si_lit, "1K"), Ok(1000));
+    assert_eq!(parse_single!(si_lit, "1.2K"), Ok(1200));
+    assert_eq!(parse_single!(si_lit, "3Ki"), Ok(3 * 1024));
 }
 
 #[test]
