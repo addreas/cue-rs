@@ -93,8 +93,8 @@ attr_token      = { !( "(" | ")" | "[" | "]" | "{" | "}" ) ~ ANY }
 
 AliasExpr  = { ( identifier ~ !(equal_op) ~ "=" )? ~ nl ~ Expression } // TODO: could the grammar be tweaked to not require that !(equal_op)?
 
-ListLit       = { "[" ~ nl ~ ( ElementList ~ nlc? )? ~ nl ~ "]" }
-ElementList   = { Ellipsis | ( Embedding ~ ( nlc ~ Embedding )* ~ ( nlc ~ Ellipsis )? ) }
+ListLit       = { "[" ~ nl ~ ( ElementList ~ nl ~ ","? )? ~ nl ~ "]" }
+ElementList   = { Ellipsis | ( Embedding ~ ( nl ~ "," ~ nl ~ Embedding )* ~ ( nl ~ "," ~ nl ~ Ellipsis )? ) }
 
 Literal     = { BasicLit | ListLit | StructLit }
 
@@ -116,7 +116,7 @@ Expression = { prefix* ~ primary ~ postfix* ~ (infix ~ nl ~ prefix* ~ primary ~ 
 infix    =  _{ or_op | and_op | disjunct_op | conjuct_op | equal_op | rel_op | add_op | mul_op }
 prefix   =  _{ unary_rel_op | unary_add_op | not_op | default_op }
 postfix  =  _{ Selector | Index | Slice | Arguments }
-primary  =  _{ Literal | OperandName | ( "(" ~ Expression ~ ")" ) }
+primary  =  _{ Literal | OperandName | ( "(" ~ nl ~ Expression ~ nl ~ ")" ) }
 
 disjunct_op  = { "|" }
 conjuct_op   = { "&" }
@@ -144,20 +144,21 @@ PackageClause = { "package" ~ PackageName }
 PackageName   = { identifier }
 
 ImportDecl     = { "import" ~ ( ImportSpec | ("(" ~ nl ~ ImportSpec* ~ nl ~ ")") ) }
-ImportSpec     = { PackageName? ~ ImportPath }
+ImportSpec     = { PackageName? ~ ImportPath ~ nlc }
 ImportLocation = { unicode_value* }
 ImportPath     = { PUSH("\"") ~ ImportLocation ~ (":" ~ identifier)? ~ POP }
 
 SourceFile = { SOI
-             ~ (attribute ~ nlc)*
-             ~ (PackageClause ~ nlc)?
-             ~ (ImportDecl ~ nlc)*
-             ~ (Declaration ~ nlc)*
+             ~ (attribute ~ nlc ~ nl)*
+             ~ (PackageClause ~ nlc ~ nl)?
+             ~ (ImportDecl ~ nlc ~ nl)*
+             ~ (Declaration ~ nlc ~ nl)*
+             ~ Declaration?
              ~ EOI
              }
 
 nl  = _{ "\n"* }
-nlc = _{ "\n" | "," | EOI }
+nlc = _{ (nl ~ ",") | "\n" | "," }
 
 WHITESPACE = _{ " " | "\t" }
-COMMENT = _{ "//" ~ (!newline ~ ANY)* }
+COMMENT = _{ "//" ~ (!newline ~ ANY)* } // TODO: dont hide comments
