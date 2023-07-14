@@ -3,14 +3,14 @@ use std::cmp::Ordering;
 use super::op::Op;
 
 #[derive(Debug, PartialEq)]
-pub enum Value {
+pub enum Value<'a> {
     Top,
 
-    Struct(Vec<Field>),
-    List(Vec<Value>),
+    Struct(Vec<Field<'a>>),
+    List(Vec<Value<'a>>),
     // Func,
-    Bytes(ValueType<usize>),
-    String(ValueType<usize>),
+    Bytes(ValueType<&'a str>),
+    String(ValueType<&'a str>),
     Float(ValueType<f64>),
     Int(ValueType<i64>),
     Bool(ValueType<bool>),
@@ -20,10 +20,10 @@ pub enum Value {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct Field {
-    label: usize,
+pub struct Field<'a> {
+    label: &'a str ,
     optional: bool,
-    value: Value,
+    value: Value<'a>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -55,23 +55,23 @@ impl<T: PartialEq> PartialOrd for ValueType<T> {
     }
 }
 
-impl Field {
-    pub const fn new(label: usize, optional: bool, value: Value) -> Field {
+impl<'a> Field<'a> {
+    pub const fn new(label: &'a str, optional: bool, value: Value<'a>) -> Field<'a> {
         Field {
             label,
             optional,
             value,
         }
     }
-    pub const fn optional(label: usize, value: Value) -> Field {
+    pub const fn optional(label: &'a str, value: Value<'a>) -> Field<'a> {
         Self::new(label, true, value)
     }
-    pub const fn required(label: usize, value: Value) -> Field {
+    pub const fn required(label: &'a str, value: Value<'a>) -> Field<'a> {
         Self::new(label, false, value)
     }
 }
 
-impl<'a> PartialOrd for Field {
+impl<'a> PartialOrd for Field<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         if self.label != other.label {
             return None;
@@ -85,7 +85,7 @@ impl<'a> PartialOrd for Field {
     }
 }
 
-impl<'a> PartialOrd for Value {
+impl<'a> PartialOrd for Value<'a> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         match (self, other) {
             (Value::Top, Value::Top) => Some(Ordering::Equal),

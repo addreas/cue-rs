@@ -61,8 +61,8 @@ fn test_float() {
 }
 
 const STRING_T: Value = Value::String(ValueType::Type);
-const STRING_MATCH: Value = Value::String(ValueType::constraint(Op::Match, 0));
-const STRING_VALUE: Value = Value::String(ValueType::concrete(1));
+const STRING_MATCH: Value = Value::String(ValueType::constraint(Op::Match, "."));
+const STRING_VALUE: Value = Value::String(ValueType::concrete("a"));
 #[test]
 fn test_string() {
     assert!(Value::Top > STRING_T);
@@ -81,8 +81,8 @@ fn test_string() {
 }
 
 const BYTES_T: Value = Value::Bytes(ValueType::Type);
-const BYTES_MATCH: Value = Value::Bytes(ValueType::constraint(Op::Match, 0));
-const BYTES_VALUE: Value = Value::Bytes(ValueType::concrete(1));
+const BYTES_MATCH: Value = Value::Bytes(ValueType::constraint(Op::Match, "."));
+const BYTES_VALUE: Value = Value::Bytes(ValueType::concrete("a"));
 #[test]
 fn test_bytes() {
     assert!(Value::Top > BYTES_T);
@@ -127,12 +127,12 @@ fn test_list() {
 
 #[test]
 fn test_struct() {
-    let struct_a_int = Value::Struct(vec![Field::required(0, INT_T)]);
-    let struct_b_int = Value::Struct(vec![Field::required(1, INT_T)]);
-    let struct_ab_int = Value::Struct(vec![Field::required(0, INT_T), Field::required(1, INT_T)]);
-    let struct_a_5 = Value::Struct(vec![Field::required(0, INT_5)]);
-    let struct_b_5 = Value::Struct(vec![Field::required(1, INT_5)]);
-    let struct_ab_5 = Value::Struct(vec![Field::required(0, INT_5), Field::required(1, INT_5)]);
+    let struct_a_int = Value::Struct(vec![Field::required("a", INT_T)]);
+    let struct_b_int = Value::Struct(vec![Field::required("b", INT_T)]);
+    let struct_ab_int = Value::Struct(vec![Field::required("a", INT_T), Field::required("b", INT_T)]);
+    let struct_a_5 = Value::Struct(vec![Field::required("a", INT_5)]);
+    let struct_b_5 = Value::Struct(vec![Field::required("b", INT_5)]);
+    let struct_ab_5 = Value::Struct(vec![Field::required("a", INT_5), Field::required("b", INT_5)]);
 
     assert!(Value::Top > struct_a_int);
     assert!(Value::Top > struct_ab_int);
@@ -162,9 +162,9 @@ fn test_struct() {
     assert!(struct_ab_int < struct_b_int);
     assert!(struct_b_5 < struct_b_int);
 
-    let struct_a_opt_int = Value::Struct(vec![Field::optional(0, INT_T)]);
-    let struct_a_opt_int_gt5 = Value::Struct(vec![Field::optional(0, INT_GT5)]);
-    let struct_a_int_gt5 = Value::Struct(vec![Field::required(0, INT_GT5)]);
+    let struct_a_opt_int = Value::Struct(vec![Field::optional("a", INT_T)]);
+    let struct_a_opt_int_gt5 = Value::Struct(vec![Field::optional("a", INT_GT5)]);
+    let struct_a_int_gt5 = Value::Struct(vec![Field::required("a", INT_GT5)]);
 
     assert!(Value::Top > struct_a_opt_int);
     assert!(Value::Top > struct_a_opt_int_gt5);

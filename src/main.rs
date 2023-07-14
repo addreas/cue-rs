@@ -4,6 +4,7 @@
 #![feature(iterator_try_reduce)]
 #![feature(slice_group_by)]
 #![feature(result_option_inspect)]
+#![feature(const_trait_impl)]
 pub mod adt;
 pub mod adt_old;
 pub mod ast;
