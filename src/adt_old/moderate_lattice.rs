@@ -33,18 +33,18 @@ pub enum BasicValue {
     Null,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TCC<T> {
     Type,
     Constraint(Op, T),
     Concrete(T),
 }
 
-impl<T: PartialEq> TCC<T> {
+impl<T: PartialEq + PartialOrd> TCC<T> {
     pub fn meet_with(
         self,
         other: Self,
-        meeter: impl Fn(Op, T, T) -> Option<T>,
+        bin_op: impl Fn(&T, Op, &T) -> bool,
         getvalue: impl Fn(TCC<T>) -> Value,
     ) -> Value {
         match (self, other) {
@@ -60,58 +60,166 @@ impl<T: PartialEq> TCC<T> {
             }
 
             (Self::Constraint(op, a), Self::Concrete(b)) => {
-                meeter(op, b, a).map_or(Value::Bottom, |c| getvalue(Self::Concrete(c)))
+                if bin_op(&b, op, &a) {
+                    getvalue(Self::Concrete(b))
+                } else {
+                    Value::Bottom
+                }
             }
             (Self::Concrete(a), Self::Constraint(op, b)) => {
-                meeter(op, a, b).map_or(Value::Bottom, |c| getvalue(Self::Concrete(c)))
+                if bin_op(&a, op, &b) {
+                    getvalue(Self::Concrete(a))
+                } else {
+                    Value::Bottom
+                }
             }
 
-            (a, b) => Value::Conjunction(vec![getvalue(a), getvalue(b)]),
+            (Self::Constraint(opa, a), Self::Constraint(opb, b)) => {
+
+                match (opa, opb) {
+                    (Op::GreaterThan, Op::GreaterThan) => todo!(),
+                    (Op::GreaterEqual, Op::GreaterEqual) => todo!(),
+
+                    (Op::LessThan, Op::LessThan) => todo!(),
+                    (Op::LessEqual, Op::LessEqual) => todo!(),
+
+                    _ => Value::Conjunction(vec![getvalue(Self::Constraint(opa, a)), getvalue(Self::Constraint(opb, b))])
+                }
+                // if opa == opb {
+                //     // ex. >10 && >2 => simplify
+                //     // ex. <10 && <2 => simplify
+                //     if bin_op(&a, opa, &b) {
+                //         getvalue(Self::Constraint(opa, a))
+                //     } else {
+                //         getvalue(Self::Constraint(opb, b))
+                //     }
+                // } else {
+                //     // ex. >10 && <20 => conjunction
+                //     // ex. >=10 && <=10 => concrete
+                //     // ex. >10 && <10 ==> bottom
+
+                //     Value::Conjunction(vec![getvalue(Self::Constraint(opa, a)), getvalue(Self::Constraint(opb, b))])
+                // }
+            }
         }
     }
 
-    fn meet_ord<TT: PartialOrd>(op: Op, concrete: TT, constraint: TT) -> Option<TT> {
-        let success = match op {
-            Op::Equal => concrete == constraint,
-            Op::NotEqual => concrete != constraint,
+    fn bin_op_ord(lhs: &T, op: Op, rhs: &T)-> bool {
+        match op {
+            Op::NotEqual => lhs != rhs,
 
-            Op::GreaterEqual => concrete >= constraint,
-            Op::GreaterThan => concrete > constraint,
-            Op::LessEqual => concrete <= constraint,
-            Op::LessThan => concrete < constraint,
+            Op::GreaterEqual => lhs >= rhs,
+            Op::GreaterThan => lhs > rhs,
+            Op::LessEqual => lhs <= rhs,
+            Op::LessThan => lhs < rhs,
 
             _ => false,
-        };
-
-        if success {
-            Some(concrete)
-        } else {
-            None
         }
     }
 
-    fn meet_str(op: Op, concrete: String, constraint: String) -> Option<String> {
-        let success = match op {
-            Op::Equal => concrete == constraint,
-            Op::NotEqual => concrete != constraint,
+    fn bin_op_str(lhs: &String, op: Op, rhs: &String) -> bool {
+        match op {
+            Op::NotEqual => lhs != rhs,
 
-            Op::GreaterEqual => concrete >= constraint,
-            Op::GreaterThan => concrete > constraint,
-            Op::LessEqual => concrete <= constraint,
-            Op::LessThan => concrete < constraint,
+            Op::GreaterEqual => lhs >= rhs,
+            Op::GreaterThan => lhs > rhs,
+            Op::LessEqual => lhs <= rhs,
+            Op::LessThan => lhs < rhs,
 
-            Op::Match => Regex::new(constraint.as_str()).unwrap().is_match(&concrete),
-            Op::NotMatch => !Regex::new(constraint.as_str()).unwrap().is_match(&concrete),
+            Op::Match => Regex::new(rhs.as_str()).unwrap().is_match(&lhs),
+            Op::NotMatch => !Regex::new(rhs.as_str()).unwrap().is_match(&lhs),
 
             _ => false,
-        };
-
-        if success {
-            Some(concrete)
-        } else {
-            None
         }
     }
+}
+
+
+#[test]
+fn test_tcc() {
+    let value = |a| Value::BasicValue(BasicValue::Int(a));
+    let bin_op = TCC::<i64>::bin_op_ord;
+    let conj = |a, b| Value::Conjunction(vec![value(a), value(b)]);
+
+    macro_rules! assert_eq_tcc_meet {
+        ($a:ident, $b:ident, $c:expr) => {
+            assert_eq!($a.meet_with($b, bin_op, value), $c, "asserting {} & {}", stringify!($a), stringify!($b));
+            assert_eq!($b.meet_with($a, bin_op, value), $c, "asserting {} & {}", stringify!($b), stringify!($a));
+        };
+    }
+
+
+    let int = TCC::<i64>::Type;
+
+    let zero = TCC::Concrete(0);
+    let one = TCC::Concrete(1);
+    let two = TCC::Concrete(2);
+
+    let gt_1 = TCC::Constraint(Op::GreaterThan, 1);
+    let gt_10 = TCC::Constraint(Op::GreaterThan, 10);
+    let gt_100 = TCC::Constraint(Op::GreaterThan, 100);
+
+    let ge_1 = TCC::Constraint(Op::GreaterEqual, 1);
+    let ge_10 = TCC::Constraint(Op::GreaterEqual, 10);
+    let ge_100 = TCC::Constraint(Op::GreaterEqual, 100);
+
+    let lt_1 = TCC::Constraint(Op::LessThan, 1);
+    let lt_10 = TCC::Constraint(Op::LessThan, 10);
+    let lt_100 = TCC::Constraint(Op::LessThan, 100);
+
+    let le_1 = TCC::Constraint(Op::LessEqual, 1);
+    let le_10 = TCC::Constraint(Op::LessEqual, 10);
+    let le_100 = TCC::Constraint(Op::LessEqual, 100);
+
+    let ne_1 = TCC::Constraint(Op::NotEqual, 1);
+    let ne_10 = TCC::Constraint(Op::NotEqual, 10);
+
+    assert_eq_tcc_meet!(int, int, value(int));
+    assert_eq_tcc_meet!(int, one, value(one));
+    assert_eq_tcc_meet!(int, gt_1, value(gt_1));
+
+    assert_eq_tcc_meet!(zero, gt_1, Value::Bottom);
+    assert_eq_tcc_meet!(one, gt_1, Value::Bottom);
+    assert_eq_tcc_meet!(two, gt_1, value(two));
+
+    assert_eq_tcc_meet!(zero, lt_1, value(zero));
+    assert_eq_tcc_meet!(one, lt_1, Value::Bottom);
+    assert_eq_tcc_meet!(two, lt_1, Value::Bottom);
+
+    assert_eq_tcc_meet!(zero, ge_1, Value::Bottom);
+    assert_eq_tcc_meet!(one, ge_1, value(one));
+    assert_eq_tcc_meet!(two, ge_1, value(two));
+
+    assert_eq_tcc_meet!(zero, le_1, value(zero));
+    assert_eq_tcc_meet!(one, le_1, value(one));
+    assert_eq_tcc_meet!(two, le_1, Value::Bottom);
+
+    assert_eq_tcc_meet!(zero, ne_1, value(zero));
+    assert_eq_tcc_meet!(one, ne_1, Value::Bottom);
+    assert_eq_tcc_meet!(two, ne_1, value(two));
+
+    assert_eq_tcc_meet!(gt_10, gt_1, value(gt_10));
+    assert_eq_tcc_meet!(gt_10, ge_1, value(gt_10));
+    assert_eq_tcc_meet!(gt_10, ne_1, value(gt_10));
+
+    assert_eq_tcc_meet!(ge_10, gt_1, value(ge_10));
+    assert_eq_tcc_meet!(ge_10, ge_1, value(ge_10));
+    assert_eq_tcc_meet!(ge_10, ne_1, value(ge_10));
+
+    assert_eq_tcc_meet!(lt_10, lt_1, value(lt_10));
+    assert_eq_tcc_meet!(lt_10, le_1, value(lt_10));
+    assert_eq_tcc_meet!(lt_10, ne_1, value(lt_10));
+
+    assert_eq_tcc_meet!(le_10, lt_1, value(le_10));
+    assert_eq_tcc_meet!(le_10, le_1, value(le_10));
+    assert_eq_tcc_meet!(le_10, ne_1, value(le_10));
+
+    assert_eq_tcc_meet!(le_1, ge_1, value(one));
+
+    assert_eq_tcc_meet!(ne_10, gt_1, conj(ne_10, gt_1));
+    assert_eq_tcc_meet!(ne_10, ge_1, conj(ne_10, ge_1));
+    assert_eq_tcc_meet!(ne_10, lt_100, conj(ne_10, lt_100));
+    assert_eq_tcc_meet!(ne_10, le_100, conj(ne_10, le_100));
 }
 
 impl Value {
@@ -201,23 +309,23 @@ impl Value {
             }
 
             (BasicValue::Float(lhs), BasicValue::Float(rhs)) => {
-                lhs.meet_with(rhs, TCC::<f64>::meet_ord, |i| {
+                lhs.meet_with(rhs, TCC::<f64>::bin_op_ord, |i| {
                     Value::BasicValue(BasicValue::Float(i))
                 })
             }
             (BasicValue::Int(lhs), BasicValue::Int(rhs)) => {
-                lhs.meet_with(rhs, TCC::<i64>::meet_ord, |i| {
+                lhs.meet_with(rhs, TCC::<i64>::bin_op_ord, |i| {
                     Value::BasicValue(BasicValue::Int(i))
                 })
             }
 
             (BasicValue::Bytes(lhs), BasicValue::Bytes(rhs)) => {
-                lhs.meet_with(rhs, TCC::<String>::meet_str, |v| {
+                lhs.meet_with(rhs, TCC::<String>::bin_op_str, |v| {
                     Value::BasicValue(BasicValue::Bytes(v))
                 })
             }
             (BasicValue::String(lhs), BasicValue::String(rhs)) => {
-                lhs.meet_with(rhs, TCC::<String>::meet_str, |v| {
+                lhs.meet_with(rhs, TCC::<String>::bin_op_str, |v| {
                     Value::BasicValue(BasicValue::String(v))
                 })
             }
@@ -234,4 +342,43 @@ impl Value {
         }
         return Self::Disjunction([existing, vec![extension]].concat());
     }
+}
+
+#[test]
+fn test_basic_meets() {
+    assert_eq!(
+        Value::Top.meet(Value::Bottom),
+        Value::Bottom,
+        "_ & _|_ == _|_"
+    );
+
+    assert_eq!(
+        Value::Top.meet(Value::BasicValue(BasicValue::Null)),
+        Value::BasicValue(BasicValue::Null),
+        "_ & null == null"
+    );
+
+    assert_eq!(
+        Value::Top.meet(Value::BasicValue(BasicValue::Bool(None))),
+        Value::BasicValue(BasicValue::Bool(None)),
+        "_ & bool == bool"
+    );
+    assert_eq!(
+        Value::Top.meet(Value::BasicValue(BasicValue::Bool(Some(true)))),
+        Value::BasicValue(BasicValue::Bool(Some(true))),
+        "_ & true == true"
+    );
+    assert_eq!(
+        Value::BasicValue(BasicValue::Bool(None))
+            .meet(Value::BasicValue(BasicValue::Bool(Some(true)))),
+        Value::BasicValue(BasicValue::Bool(Some(true))),
+        "bool & true == true"
+    );
+
+    assert_eq!(
+        Value::BasicValue(BasicValue::Int(TCC::Type))
+            .meet(Value::BasicValue(BasicValue::Int(TCC::Constraint(Op::GreaterThan, 3)))),
+        Value::BasicValue(BasicValue::Int(TCC::Constraint(Op::GreaterThan, 3))),
+        "int & >3 == >3"
+    );
 }
