@@ -15,14 +15,8 @@ pub enum Op {
 
     Equal,
     Not,
-    NotEqual,
-    LessThan,
-    LessEqual,
-    GreaterThan,
-    GreaterEqual,
 
-    Match,
-    NotMatch,
+    RelOp(RelOp),
 
     Add,
     Subtract,
@@ -36,8 +30,16 @@ pub enum Op {
     Interpolation,
 }
 
-impl PartialOrd for Op {
-    fn partial_cmp(&self, _: &Self) -> Option<std::cmp::Ordering> {
-        return Some(std::cmp::Ordering::Equal);
-    }
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RelOp {
+    NotEqual,
+
+    LessThan,
+    LessEqual,
+
+    GreaterThan,
+    GreaterEqual,
+
+    Match,
+    NotMatch,
 }

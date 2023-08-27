@@ -1,5 +1,5 @@
 use super::lattice::*;
-use super::op::Op;
+use super::op::RelOp;
 
 const BOOL_T: Value = Value::Bool(ValueType::Type);
 const BOOL_TRUE: Value = Value::Bool(ValueType::concrete(true));
@@ -21,7 +21,7 @@ fn test_basic() {
 }
 
 const INT_T: Value = Value::Int(ValueType::Type);
-const INT_GT5: Value = Value::Int(ValueType::constraint(Op::GreaterThan, 5));
+const INT_GT5: Value = Value::Int(ValueType::constraint(RelOp::GreaterThan, 5));
 const INT_5: Value = Value::Int(ValueType::concrete(5));
 #[test]
 fn test_int() {
@@ -41,7 +41,7 @@ fn test_int() {
 }
 
 const FLOAT_T: Value = Value::Float(ValueType::Type);
-const FLOAT_GT5: Value = Value::Float(ValueType::constraint(Op::GreaterThan, 5.0));
+const FLOAT_GT5: Value = Value::Float(ValueType::constraint(RelOp::GreaterThan, 5.0));
 const FLOAT_5: Value = Value::Float(ValueType::concrete(5.0));
 #[test]
 fn test_float() {
@@ -61,7 +61,7 @@ fn test_float() {
 }
 
 const STRING_T: Value = Value::String(ValueType::Type);
-const STRING_MATCH: Value = Value::String(ValueType::constraint(Op::Match, "."));
+const STRING_MATCH: Value = Value::String(ValueType::constraint(RelOp::Match, "."));
 const STRING_VALUE: Value = Value::String(ValueType::concrete("a"));
 #[test]
 fn test_string() {
@@ -81,7 +81,7 @@ fn test_string() {
 }
 
 const BYTES_T: Value = Value::Bytes(ValueType::Type);
-const BYTES_MATCH: Value = Value::Bytes(ValueType::constraint(Op::Match, "."));
+const BYTES_MATCH: Value = Value::Bytes(ValueType::constraint(RelOp::Match, "."));
 const BYTES_VALUE: Value = Value::Bytes(ValueType::concrete("a"));
 #[test]
 fn test_bytes() {

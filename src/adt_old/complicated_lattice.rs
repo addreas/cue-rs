@@ -7,7 +7,7 @@ use std::{
     vec, collections::{HashMap, hash_map::DefaultHasher}, hash::{Hash, Hasher},
 };
 
-use super::op::Op;
+use super::op::RelOp;
 
 #[allow(dead_code)]
 pub struct Vertex {
@@ -47,8 +47,8 @@ fn test_value() {
     let null = Value::BasicValue(BasicValue::Null).as_rc();
     let int = Value::BasicValue(BasicValue::int_t()).as_rc();
     let string = Value::BasicValue(BasicValue::string_t()).as_rc();
-    let intgt5 = Value::BasicValue(BasicValue::int_constraint(Op::GreaterThan, 5)).as_rc();
-    let stringmatch = Value::BasicValue(BasicValue::string_constraint(Op::Match, "test.*")).as_rc();
+    let intgt5 = Value::BasicValue(BasicValue::int_constraint(RelOp::GreaterThan, 5)).as_rc();
+    let stringmatch = Value::BasicValue(BasicValue::string_constraint(RelOp::Match, "test.*")).as_rc();
     let stringtest = Value::BasicValue(BasicValue::string("testtest")).as_rc();
 
     assert_eq!(*null.clone_rc().meet(int.clone_rc()), Value::Bottom);
@@ -278,9 +278,7 @@ impl BasicValue {
     pub fn bytes_t() -> Self {
         Self::Bytes(ValueType::Type)
     }
-    pub fn bytes_constraint(op: Op, value: &str) -> Self {
-
-
+    pub fn bytes_constraint(op: RelOp, value: &str) -> Self {
         Self::Bytes(ValueType::Constraint(op, intern(value)))
     }
     pub fn bytes(value: &str) -> Self {
@@ -289,7 +287,7 @@ impl BasicValue {
     pub fn string_t() -> Self {
         Self::String(ValueType::Type)
     }
-    pub fn string_constraint(op: Op, value: &str) -> Self {
+    pub fn string_constraint(op: RelOp, value: &str) -> Self {
         Self::String(ValueType::Constraint(op, intern(value)))
     }
     pub fn string(value: &str) -> Self {
@@ -298,7 +296,7 @@ impl BasicValue {
     pub fn float_t() -> Self {
         Self::Float(ValueType::Type)
     }
-    pub fn float_constraint(op: Op, value: f64) -> Self {
+    pub fn float_constraint(op: RelOp, value: f64) -> Self {
         Self::Float(ValueType::Constraint(op, value))
     }
     pub fn float(value: f64) -> Self {
@@ -307,7 +305,7 @@ impl BasicValue {
     pub fn int_t() -> Self {
         Self::Int(ValueType::Type)
     }
-    pub fn int_constraint(op: Op, value: i64) -> Self {
+    pub fn int_constraint(op: RelOp, value: i64) -> Self {
         Self::Int(ValueType::Constraint(op, value))
     }
     pub fn int(value: i64) -> Self {
@@ -324,7 +322,7 @@ impl BasicValue {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ValueType<T: PartialEq + PartialOrd> {
     Type,
-    Constraint(Op, T),
+    Constraint(RelOp, T),
     Concrete(T),
 }
 
@@ -350,72 +348,31 @@ impl<T: PartialEq + PartialOrd + Debug> PartialOrd for ValueType<T> {
 }
 
 impl<T: PartialEq + PartialOrd> ValueType<T> {
-    pub fn t_constrains(a: T, op: &Op, b: T) -> bool {
+    pub fn t_constrains(a: T, op: &RelOp, b: T) -> bool {
         match op {
-            Op::Not => a != b,
-            // Op::Noop => todo!(),
-            // Op::And => a & b,
-            // Op::Or => a | b,
-            // Op::Selector => todo!(),
-            // Op::Index => todo!(),
-            // Op::Slice => todo!(),
-            // Op::Call => todo!(),
-            // Op::BoolAnd => todo!(),
-            // Op::BoolOr => todo!(),
-            Op::Equal => a == b,
-            Op::NotEqual => a != b,
-            Op::LessThan => a < b,
-            Op::LessEqual => a <= b,
-            Op::GreaterThan => a > b,
-            Op::GreaterEqual => a >= b,
-            // Op::Match => todo!(),
-            // Op::NotMatch => todo!(),
-            // Op::Add => todo!(),
-            // Op::Subtract => todo!(),
-            // Op::Multiply => todo!(),
-            // Op::FloatQuotient => todo!(),
-            // Op::IntQuotient => todo!(),
-            // Op::IntRemainder => todo!(),
-            // Op::IntDivide => todo!(),
-            // Op::IntModulo => todo!(),
-            // Op::Interpolation => todo!(),
-            _ => panic!("invalid constraint op"),
+            RelOp::NotEqual => a != b,
+            RelOp::LessThan => a < b,
+            RelOp::LessEqual => a <= b,
+            RelOp::GreaterThan => a > b,
+            RelOp::GreaterEqual => a >= b,
+            RelOp::Match => todo!(),
+            RelOp::NotMatch => todo!(),
         }
     }
 }
 
 impl ValueType<u64> {
-    pub fn string_constrains(&self, op: &Op, other: Self) -> bool {
+    pub fn string_constrains(&self, op: &RelOp, other: Self) -> bool {
         let a = self.get_str().expect("what could possibly go wrong");
         let b = other.get_str().expect("what could possibly go wrong");
         match op {
-            Op::Not => a != b,
-            // Op::Noop => todo!(),
-            // Op::And => a & b,
-            // Op::Or => a | b,
-            // Op::Selector => todo!(),
-            // Op::Index => todo!(),
-            // Op::Slice => todo!(),
-            // Op::Call => todo!(),
-            // Op::BoolAnd => todo!(),
-            // Op::BoolOr => todo!(),
-            Op::Equal => a == b,
-            Op::NotEqual => a != b,
-            Op::LessThan => a < b,
-            Op::LessEqual => a <= b,
-            Op::GreaterThan => a > b,
-            Op::GreaterEqual => a >= b,
-            Op::Match => todo!(),
-            Op::NotMatch => todo!(),
-            // Op::Add => todo!(),
-            // Op::Subtract => todo!(),
-            // Op::Multiply => todo!(),
-            // Op::FloatQuotient => todo!(),
-            // Op::IntQuotient => todo!(),
-            // Op::IntRemainder => todo!(),
-            // Op::IntDivide => todo!(),
-            // Op::IntModulo => todo!(),
-            // Op::Interpolation => todo!(),
+            RelOp::NotEqual => a != b,
+            RelOp::LessThan => a < b,
+            RelOp::LessEqual => a <= b,
+            RelOp::GreaterThan => a > b,
+            RelOp::GreaterEqual => a >= b,
+            RelOp::Match => todo!(),
+            RelOp::NotMatch => todo!(),
             _ => panic!("invalid constraint op: {:?}", op),
         }
     }
@@ -669,7 +626,7 @@ impl Lattice for Value {
 // }
 
 // impl<T: PartialEq + Copy> ValueType<T> {
-//     pub const fn constraint(op: Op, inner: T) -> Self {
+//     pub const fn constraint(op: RelOp, inner: T) -> Self {
 //         return Self::Constraint(op, inner);
 //     }
 //     pub const fn concrete(inner: T) -> Self {

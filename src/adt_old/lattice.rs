@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use super::op::Op;
+use super::op::RelOp;
 
 #[derive(Debug, PartialEq)]
 pub enum Value<'a> {
@@ -29,12 +29,12 @@ pub struct Field<'a> {
 #[derive(Debug, PartialEq)]
 pub enum ValueType<T: PartialEq> {
     Type,
-    Constraint(Op, T),
+    Constraint(RelOp, T),
     Concrete(T),
 }
 
 impl<T: PartialEq> ValueType<T> {
-    pub const fn constraint(op: Op, inner: T) -> ValueType<T> {
+    pub const fn constraint(op: RelOp, inner: T) -> ValueType<T> {
         return ValueType::Constraint(op, inner);
     }
     pub const fn concrete(inner: T) -> ValueType<T> {

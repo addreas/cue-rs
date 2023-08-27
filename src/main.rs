@@ -5,6 +5,7 @@
 #![feature(slice_group_by)]
 #![feature(result_option_inspect)]
 #![feature(const_trait_impl)]
+#![feature(stmt_expr_attributes)]
 pub mod adt;
 pub mod adt_old;
 pub mod ast;
