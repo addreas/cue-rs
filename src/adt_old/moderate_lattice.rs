@@ -1,3 +1,5 @@
+use std::fmt::Debug;
+
 use regex::Regex;
 
 use super::op::RelOp;
@@ -38,7 +40,7 @@ pub enum BasicValue<T> {
     Concrete(T),
 }
 
-impl<T: PartialEq + PartialOrd> BasicValue<T> {
+impl<T: PartialEq + PartialOrd + Debug> BasicValue<T> {
     pub fn join_with(
         self,
         other: Self,
@@ -129,10 +131,10 @@ impl<T: PartialEq + PartialOrd> BasicValue<T> {
 
 
                     (RelOp::NotEqual, RelOp::NotEqual)     if a == b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::NotEqual, RelOp::GreaterEqual) if b <  a => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::NotEqual, RelOp::GreaterThan)  if b <= a => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::NotEqual, RelOp::LessEqual)    if b >  a => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::NotEqual, RelOp::LessThan)     if b >= a => getvalue(Self::Constraint(opb, b)),
+                    (RelOp::NotEqual, RelOp::GreaterEqual) if a <  b => getvalue(Self::Constraint(opb, b)),
+                    (RelOp::NotEqual, RelOp::GreaterThan)  if a <= b => getvalue(Self::Constraint(opb, b)),
+                    (RelOp::NotEqual, RelOp::LessEqual)    if a >  b => getvalue(Self::Constraint(opb, b)),
+                    (RelOp::NotEqual, RelOp::LessThan)     if a >= b => getvalue(Self::Constraint(opb, b)),
 
 
                     _ => Value::Conjunction(vec![getvalue(Self::Constraint(opa, a)), getvalue(Self::Constraint(opb, b))]),
