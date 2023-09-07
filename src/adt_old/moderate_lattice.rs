@@ -174,173 +174,6 @@ fn rel_op_str(lhs: &String, op: RelOp, rhs: &String) -> bool {
     }
 }
 
-#[test]
-fn test_tcc() {
-    let value = |a| Value::Int(a);
-    let bin_op = rel_op_ord;
-    let conj = |a, b| Value::Conjunction(vec![value(a), value(b)]);
-
-    macro_rules! assert_eq_tcc_meet {
-        ($a:ident, $b:ident, $c:expr) => {
-            assert_eq!(
-                $a.meet_with($b, bin_op, value),
-                $c,
-                "asserting {} & {}",
-                stringify!($a),
-                stringify!($b)
-            );
-            // assert_eq!(
-            //     $b.meet_with($a, bin_op, value),
-            //     $c,
-            //     "asserting {} & {}",
-            //     stringify!($b),
-            //     stringify!($a)
-            // );
-        };
-    }
-
-    let int = BasicValue::<i64>::Type;
-
-    let zero = BasicValue::Concrete(0);
-    let one = BasicValue::Concrete(1);
-    let two = BasicValue::Concrete(2);
-
-    let gt_1 = BasicValue::Constraint(RelOp::GreaterThan, 1);
-    let gt_10 = BasicValue::Constraint(RelOp::GreaterThan, 10);
-    let gt_100 = BasicValue::Constraint(RelOp::GreaterThan, 100);
-
-    let ge_1 = BasicValue::Constraint(RelOp::GreaterEqual, 1);
-    let ge_10 = BasicValue::Constraint(RelOp::GreaterEqual, 10);
-    let ge_100 = BasicValue::Constraint(RelOp::GreaterEqual, 100);
-
-    let lt_1 = BasicValue::Constraint(RelOp::LessThan, 1);
-    let lt_10 = BasicValue::Constraint(RelOp::LessThan, 10);
-    let lt_100 = BasicValue::Constraint(RelOp::LessThan, 100);
-
-    let le_1 = BasicValue::Constraint(RelOp::LessEqual, 1);
-    let le_10 = BasicValue::Constraint(RelOp::LessEqual, 10);
-    let le_100 = BasicValue::Constraint(RelOp::LessEqual, 100);
-
-    let ne_1 = BasicValue::Constraint(RelOp::NotEqual, 1);
-    let ne_10 = BasicValue::Constraint(RelOp::NotEqual, 10);
-    let ne_100 = BasicValue::Constraint(RelOp::NotEqual, 100);
-
-    assert_eq_tcc_meet!(int, int, value(int));
-    assert_eq_tcc_meet!(int, one, value(one));
-    assert_eq_tcc_meet!(int, gt_1, value(gt_1));
-
-    // 0..2 & >1
-    assert_eq_tcc_meet!(zero, gt_1, Value::Bottom);
-    assert_eq_tcc_meet!(one, gt_1, Value::Bottom);
-    assert_eq_tcc_meet!(two, gt_1, value(two));
-
-    // 0..2 & <1
-    assert_eq_tcc_meet!(zero, lt_1, value(zero));
-    assert_eq_tcc_meet!(one, lt_1, Value::Bottom);
-    assert_eq_tcc_meet!(two, lt_1, Value::Bottom);
-
-    // 0..2 & >=1
-    assert_eq_tcc_meet!(zero, ge_1, Value::Bottom);
-    assert_eq_tcc_meet!(one, ge_1, value(one));
-    assert_eq_tcc_meet!(two, ge_1, value(two));
-
-    // 0..2 & <=1
-    assert_eq_tcc_meet!(zero, le_1, value(zero));
-    assert_eq_tcc_meet!(one, le_1, value(one));
-    assert_eq_tcc_meet!(two, le_1, Value::Bottom);
-
-    // 0..2 & !=1
-    assert_eq_tcc_meet!(zero, ne_1, value(zero));
-    assert_eq_tcc_meet!(one, ne_1, Value::Bottom);
-    assert_eq_tcc_meet!(two, ne_1, value(two));
-
-    // >= 1 & <= 1 == 1
-    assert_eq_tcc_meet!(le_1, ge_1, value(one));
-
-    // >10 & >1..100
-    assert_eq_tcc_meet!(gt_10, gt_1, value(gt_10));
-    assert_eq_tcc_meet!(gt_10, gt_10, value(gt_10));
-    assert_eq_tcc_meet!(gt_10, gt_100, value(gt_100));
-
-    // >10 & >=1..100
-    assert_eq_tcc_meet!(gt_10, ge_1, value(gt_10));
-    assert_eq_tcc_meet!(gt_10, ge_10, value(gt_10));
-    assert_eq_tcc_meet!(gt_10, ge_100, value(ge_100));
-
-    // >10 & !=1..100
-    assert_eq_tcc_meet!(gt_10, ne_1, conj(gt_10, ne_1));
-    assert_eq_tcc_meet!(gt_10, ne_10, value(gt_10));
-    assert_eq_tcc_meet!(gt_10, ne_100, value(gt_10));
-
-
-    // >=10 & >=1..100
-    assert_eq_tcc_meet!(ge_10, ge_1, value(ge_10));
-    assert_eq_tcc_meet!(ge_10, ge_10, value(ge_10));
-    assert_eq_tcc_meet!(ge_10, ge_100, value(ge_100));
-
-    // >=10 & >1..100
-    assert_eq_tcc_meet!(ge_10, gt_1, value(ge_10));
-    assert_eq_tcc_meet!(ge_10, gt_10, value(gt_10));
-    assert_eq_tcc_meet!(ge_10, gt_100, value(gt_100));
-
-    // >=10 & !=1..100
-    assert_eq_tcc_meet!(ge_10, ne_1, conj(ge_10, ne_1));
-    assert_eq_tcc_meet!(ge_10, ne_10, conj(ge_10, ne_10));
-    assert_eq_tcc_meet!(ge_10, ne_100, value(ge_10));
-
-
-    // <10 & <1..100
-    assert_eq_tcc_meet!(lt_10, lt_1, value(lt_1));
-    assert_eq_tcc_meet!(lt_10, lt_10, value(lt_10));
-    assert_eq_tcc_meet!(lt_10, lt_100, value(lt_10));
-
-    // <10 && <=1..100
-    assert_eq_tcc_meet!(lt_10, le_1, value(le_1));
-    assert_eq_tcc_meet!(lt_10, le_10, value(lt_10));
-    assert_eq_tcc_meet!(lt_10, le_100, value(lt_10));
-
-    // <10 && !=1..100
-    assert_eq_tcc_meet!(lt_10, ne_1, value(lt_10));
-    assert_eq_tcc_meet!(lt_10, ne_10, value(lt_10));
-    assert_eq_tcc_meet!(lt_10, ne_100, conj(lt_10, ne_100));
-
-
-    // <=10 && <=1..100
-    assert_eq_tcc_meet!(le_10, le_1, value(le_1));
-    assert_eq_tcc_meet!(le_10, le_10, value(le_10));
-    assert_eq_tcc_meet!(le_10, le_100, value(le_10));
-
-    // <=10 & <1..100
-    assert_eq_tcc_meet!(le_10, lt_1, value(lt_1));
-    assert_eq_tcc_meet!(le_10, lt_10, value(lt_10));
-    assert_eq_tcc_meet!(le_10, lt_100, value(le_10));
-
-    // <=10 && !=1..100
-    assert_eq_tcc_meet!(le_10, ne_1, value(le_10));
-    assert_eq_tcc_meet!(le_10, ne_10, conj(le_10, ne_10));
-    assert_eq_tcc_meet!(le_10, ne_100, conj(le_10, ne_100));
-
-
-    // !=10 & >1..100
-    assert_eq_tcc_meet!(ne_10, gt_1, conj(ne_10, gt_1));
-    assert_eq_tcc_meet!(ne_10, gt_10, value(gt_10));
-    assert_eq_tcc_meet!(ne_10, gt_100, value(gt_100));
-
-    // !=10 & >=1..100
-    assert_eq_tcc_meet!(ne_10, ge_1, conj(ne_10, ge_1));
-    assert_eq_tcc_meet!(ne_10, ge_10, conj(ne_10, ge_10));
-    assert_eq_tcc_meet!(ne_10, ge_100, value(ge_100));
-
-    // !=10 & <1..100
-    assert_eq_tcc_meet!(ne_10, lt_1, value(lt_1));
-    assert_eq_tcc_meet!(ne_10, lt_10, value(lt_10));
-    assert_eq_tcc_meet!(ne_10, lt_100, conj(ne_10, lt_100));
-
-    // !=10 & <=1..100
-    assert_eq_tcc_meet!(ne_10, le_1, value(le_1));
-    assert_eq_tcc_meet!(ne_10, le_10, conj(ne_10, le_10));
-    assert_eq_tcc_meet!(ne_10, le_100, conj(ne_10, le_100));
-}
 
 impl Value {
     // supremum, least upper bound, anti-unification (|)
@@ -467,4 +300,130 @@ fn test_basic_meets() {
         Value::Int(BasicValue::Constraint(RelOp::GreaterThan, 3)),
         "int & >3 == >3"
     );
+}
+
+#[test]
+fn test_int() {
+    macro_rules! int_val {
+        (_) => { Value::Top };
+        (_|_) => { Value::Bottom };
+        (int) => { Value::Int(BasicValue::<i64>::Type) };
+        (   $a:literal) => { Value::Int(BasicValue::Concrete($a)) };
+        (>  $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::GreaterThan, $a)) };
+        (>= $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::GreaterEqual, $a)) };
+        (<  $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::LessThan, $a)) };
+        (<= $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::LessEqual, $a)) };
+        (!= $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::NotEqual, $a)) };
+        (($($a:tt)+) & ($($b:tt)+)) => { Value::Conjunction(vec![int_val!($($a)+), int_val!($($b)+)]) };
+    }
+
+    macro_rules! assert_int {
+        (($($a:tt)+) & ($($b:tt)+) == ($($c:tt)+)) => {
+            let a = int_val!($($a)+);
+            let b = int_val!($($b)+);
+            let c = int_val!($($c)+);
+            assert_eq!(
+                a.meet(b),
+                c,
+                "expect that {} & {} == {}",
+                stringify!($($a)+),
+                stringify!($($b)+),
+                stringify!($($c)+),
+            )
+        };
+    }
+
+    assert_int!((int) & (int) == (int));
+    assert_int!((int) & (1) == (1));
+    assert_int!((int) & (>1) == (>1));
+
+    assert_int!((0) & (>1) == (_|_));
+    assert_int!((1) & (>1) == (_|_));
+    assert_int!((2) & (>1) == (2));
+
+    assert_int!((0) & (<1) == (0));
+    assert_int!((1) & (<1) == (_|_));
+    assert_int!((2) & (<1) == (_|_));
+
+    assert_int!((0) & (>=1) == (_|_));
+    assert_int!((1) & (>=1) == (1));
+    assert_int!((2) & (>=1) == (2));
+
+    assert_int!((0) & (<=1) == (0));
+    assert_int!((1) & (<=1) == (1));
+    assert_int!((2) & (<=1) == (_|_));
+
+    assert_int!((0) & (!=1) == (0));
+    assert_int!((1) & (!=1) == (_|_));
+    assert_int!((2) & (!=1) == (2));
+
+    assert_int!((<=1) & (>=1) == (1));
+
+    assert_int!((>10) & (>1) == (>10));
+    assert_int!((>10) & (>10) == (>10));
+    assert_int!((>10) & (>100) == (>100));
+
+    assert_int!((>10) & (>=1) == (>10));
+    assert_int!((>10) & (>=10) == (>10));
+    assert_int!((>10) & (>=100) == (>=100));
+
+    assert_int!((>10) & (!=1) == ((>10) & (!=1)));
+    assert_int!((>10) & (!=10) == (>10));
+    assert_int!((>10) & (!=100) == (>10));
+
+
+    assert_int!((>=10) & (>=1) == (>=10));
+    assert_int!((>=10) & (>=10) == (>=10));
+    assert_int!((>=10) & (>=100) == (>=100));
+
+    assert_int!((>=10) & (>1) == (>=10));
+    assert_int!((>=10) & (>10) == (>10));
+    assert_int!((>=10) & (>100) == (>100));
+
+    assert_int!((>=10) & (!=1) == ((>=10) & (!=1)));
+    assert_int!((>=10) & (!=10) == ((>=10) & (!=10)));
+    assert_int!((>=10) & (!=100) == (>=10));
+
+
+    assert_int!((<10) & (<1) == (<1));
+    assert_int!((<10) & (<10) == (<10));
+    assert_int!((<10) & (<100) == (<10));
+
+    assert_int!((<10) & (<=1) == (<=1));
+    assert_int!((<10) & (<=10) == (<10));
+    assert_int!((<10) & (<=100) == (<10));
+
+    assert_int!((<10) & (!=1) == (<10));
+    assert_int!((<10) & (!=10) == (<10));
+    assert_int!((<10) & (!=100) == ((<10) & (!=100)));
+
+
+    assert_int!((<=10) & (<=1) == (<=1));
+    assert_int!((<=10) & (<=10) == (<=10));
+    assert_int!((<=10) & (<=100) == (<=10));
+
+    assert_int!((<=10) & (<1) == (<1));
+    assert_int!((<=10) & (<10) == (<10));
+    assert_int!((<=10) & (<100) == (<=10));
+
+    assert_int!((<=10) & (!=1) == (<=10));
+    assert_int!((<=10) & (!=10) == ((<=10) & (!=10)));
+    assert_int!((<=10) & (!=100) == ((<=10) & (!=100)));
+
+
+    assert_int!((!=10) & (>1) == ((!=10) & (>1)));
+    assert_int!((!=10) & (>10) == (>10));
+    assert_int!((!=10) & (>100) == (>100));
+
+    assert_int!((!=10) & (>=1) == ((!=10) & (>=1)));
+    assert_int!((!=10) & (>=10) == ((!=10) & (>=10)));
+    assert_int!((!=10) & (>=100) == (>=100));
+
+    assert_int!((!=10) & (<1) == (<1));
+    assert_int!((!=10) & (<10) == (<10));
+    assert_int!((!=10) & (<100) == ((!=10) & (<100)));
+
+    assert_int!((!=10) & (<=1) == (<=1));
+    assert_int!((!=10) & (<=10) == ((!=10) & (<=10)));
+    assert_int!((!=10) & (<=100) == ((!=10) & (<=100)));
 }
