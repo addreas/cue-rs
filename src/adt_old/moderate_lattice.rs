@@ -1,8 +1,10 @@
-use std::fmt::Debug;
+use std::{fmt::Debug, rc::Rc};
 
 use regex::Regex;
 
 use super::op::RelOp;
+
+type Basic<Op, T> = Option<(Option<Op>, T)>;
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
@@ -14,17 +16,19 @@ pub enum Value {
     Struct(Vec<Field>),
     List(Vec<Value>),
 
-    Bytes(BasicValue<String>),
-    String(BasicValue<String>),
-    Float(BasicValue<f64>),
-    Int(BasicValue<i64>),
+    String(Basic<RelOp, Rc<str>>),
+    Bytes(Basic<RelOp, Rc<str>>),
 
-    Bool(Option<bool>), // (bool, true, false) == (None, Some(True), Some(False)
+    Float(Basic<RelOp, f64>),
+    Int(Basic<RelOp, i64>),
+
+    Bool(Option<bool>),
 
     Null,
 
     Bottom,
 }
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Field {
@@ -40,111 +44,6 @@ pub enum BasicValue<T> {
     Concrete(T),
 }
 
-impl<T: PartialEq + PartialOrd + Debug> BasicValue<T> {
-    pub fn join_with(
-        self,
-        other: Self,
-        rel_op: impl Fn(&T, RelOp, &T) -> bool,
-        getvalue: impl Fn(BasicValue<T>) -> Value,
-    ) -> Value {
-        match (self, other) {
-            (Self::Type, _) => getvalue(Self::Type),
-            (_, Self::Type) => getvalue(Self::Type),
-
-            (Self::Concrete(a), Self::Concrete(b)) if a == b => getvalue(Self::Concrete(a)),
-
-            (Self::Constraint(op, a), Self::Concrete(b)) if !rel_op(&b, op, &a) => {
-                getvalue(Self::Constraint(op, a))
-            }
-            (Self::Concrete(a), Self::Constraint(op, b)) if !rel_op(&a, op, &b) => {
-                getvalue(Self::Constraint(op, b))
-            }
-
-            (Self::Constraint(opa, a), Self::Constraint(opb, b)) => {
-                match (opa, opb) {
-                    (RelOp::GreaterThan, RelOp::GreaterThan) => todo!(),
-                    (RelOp::GreaterEqual, RelOp::GreaterEqual) => todo!(),
-
-                    (RelOp::LessThan, RelOp::LessThan) => todo!(),
-                    (RelOp::LessEqual, RelOp::LessEqual) => todo!(),
-
-                    _ => Value::Disjunction(vec![
-                        getvalue(Self::Constraint(opa, a)),
-                        getvalue(Self::Constraint(opb, b)),
-                    ]),
-                }
-            }
-            (a, b) => Value::Disjunction(vec![getvalue(a), getvalue(b)]),
-        }
-    }
-
-    pub fn meet_with(
-        self,
-        other: Self,
-        rel_op: impl Fn(&T, RelOp, &T) -> bool,
-        getvalue: impl Fn(BasicValue<T>) -> Value,
-    ) -> Value {
-        match (self, other) {
-            (Self::Type, b) => getvalue(b),
-            (a, Self::Type) => getvalue(a),
-
-            (Self::Concrete(a), Self::Concrete(b)) if a == b => getvalue(Self::Concrete(a)),
-
-            (Self::Constraint(op, a), Self::Concrete(b)) if rel_op(&b, op, &a) => {
-                getvalue(Self::Concrete(b))
-            }
-            (Self::Concrete(a), Self::Constraint(op, b)) if rel_op(&a, op, &b) => {
-                getvalue(Self::Concrete(a))
-            }
-
-            (Self::Constraint(opa, a), Self::Constraint(opb, b)) => {
-                #[rustfmt::skip]
-                match (opa, opb) {
-                    (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => getvalue(Self::Concrete(a)),
-                    (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => getvalue(Self::Concrete(a)),
-
-
-                    (RelOp::GreaterEqual, RelOp::GreaterEqual) if a >= b => getvalue(Self::Constraint(opa, a)),
-                    (RelOp::GreaterEqual, RelOp::GreaterEqual) if a <  b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::GreaterEqual, RelOp::GreaterThan)  if a >  b => getvalue(Self::Constraint(opa, a)),
-                    (RelOp::GreaterEqual, RelOp::GreaterThan)  if a <= b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::GreaterEqual, RelOp::NotEqual)     if a <  b => getvalue(Self::Constraint(opa, a)),
-
-                    (RelOp::GreaterThan, RelOp::GreaterThan)  if a >= b => getvalue(Self::Constraint(opa, a)),
-                    (RelOp::GreaterThan, RelOp::GreaterThan)  if a <  b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::GreaterThan, RelOp::GreaterEqual) if a >= b => getvalue(Self::Constraint(opa, a)),
-                    (RelOp::GreaterThan, RelOp::GreaterEqual) if a <  b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::GreaterThan, RelOp::NotEqual)     if a <= b => getvalue(Self::Constraint(opa, a)),
-
-
-                    (RelOp::LessEqual, RelOp::LessEqual) if a <= b => getvalue(Self::Constraint(opa, a)),
-                    (RelOp::LessEqual, RelOp::LessEqual) if a >  b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::LessEqual, RelOp::LessThan)  if a <  b => getvalue(Self::Constraint(opa, a)),
-                    (RelOp::LessEqual, RelOp::LessThan)  if a >= b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::LessEqual, RelOp::NotEqual)  if a >  b => getvalue(Self::Constraint(opa, a)),
-
-                    (RelOp::LessThan, RelOp::LessThan)  if a <= b => getvalue(Self::Constraint(opa, a)),
-                    (RelOp::LessThan, RelOp::LessThan)  if a >  b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::LessThan, RelOp::LessEqual) if a <= b => getvalue(Self::Constraint(opa, a)),
-                    (RelOp::LessThan, RelOp::LessEqual) if a >  b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::LessThan, RelOp::NotEqual)  if a >= b => getvalue(Self::Constraint(opa, a)),
-
-
-                    (RelOp::NotEqual, RelOp::NotEqual)     if a == b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::NotEqual, RelOp::GreaterEqual) if a <  b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::NotEqual, RelOp::GreaterThan)  if a <= b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::NotEqual, RelOp::LessEqual)    if a >  b => getvalue(Self::Constraint(opb, b)),
-                    (RelOp::NotEqual, RelOp::LessThan)     if a >= b => getvalue(Self::Constraint(opb, b)),
-
-
-                    _ => Value::Conjunction(vec![getvalue(Self::Constraint(opa, a)), getvalue(Self::Constraint(opb, b))]),
-                }
-            }
-            _ => Value::Bottom,
-        }
-    }
-}
-
 fn rel_op_ord<T: PartialEq + PartialOrd>(lhs: &T, op: RelOp, rhs: &T) -> bool {
     match op {
         RelOp::NotEqual => lhs != rhs,
@@ -158,7 +57,8 @@ fn rel_op_ord<T: PartialEq + PartialOrd>(lhs: &T, op: RelOp, rhs: &T) -> bool {
     }
 }
 
-fn rel_op_str(lhs: &String, op: RelOp, rhs: &String) -> bool {
+
+fn rel_op_str(lhs: &str, op: RelOp, rhs: &str) -> bool {
     match op {
         RelOp::NotEqual => lhs != rhs,
 
@@ -167,8 +67,8 @@ fn rel_op_str(lhs: &String, op: RelOp, rhs: &String) -> bool {
         RelOp::LessEqual => lhs <= rhs,
         RelOp::LessThan => lhs < rhs,
 
-        RelOp::Match => Regex::new(rhs.as_str()).unwrap().is_match(&lhs),
-        RelOp::NotMatch => !Regex::new(rhs.as_str()).unwrap().is_match(&lhs),
+        RelOp::Match => Regex::new(rhs).unwrap().is_match(lhs),
+        RelOp::NotMatch => !Regex::new(rhs).unwrap().is_match(lhs),
 
         _ => false,
     }
@@ -176,32 +76,6 @@ fn rel_op_str(lhs: &String, op: RelOp, rhs: &String) -> bool {
 
 
 impl Value {
-    // supremum, least upper bound, anti-unification (|)
-    pub fn join(self: Self, other: Self) -> Self {
-        match (self, other) {
-            (a, b) if a == b => a,
-
-            (Self::Top, _) => Self::Top,
-            (_, Self::Top) => Self::Top,
-
-            (Self::Bottom, b) => b,
-            (a, Self::Bottom) => a,
-
-            (Self::Bool(_), Self::Bool(_)) => todo!("join_tcc(lhs, rhs)"),
-
-            (Self::Float(_), Self::Float(_)) => todo!("join_tcc(lhs, rhs)"),
-            (Self::Int(_), Self::Int(_)) => todo!("join_tcc(lhs, rhs)"),
-
-            (Self::Bytes(_), Self::Bytes(_)) => todo!("join_tcc(lhs, rhs)"),
-            (Self::String(_), Self::String(_)) => todo!("join_tcc(lhs, rhs)"),
-
-            (Self::Disjunction(a), b) => Self::extend_disjunction(a, b),
-            (a, Self::Disjunction(b)) => Self::extend_disjunction(b, a),
-
-            (a, b) => Self::Disjunction(vec![a, b]),
-        }
-    }
-
     // infimum, greatest lower bound, unification (&)
     pub fn meet(self: Self, other: Self) -> Self {
         match (self, other) {
@@ -216,24 +90,154 @@ impl Value {
             (Self::Bool(None), Self::Bool(b)) => Self::Bool(b),
             (Self::Bool(a), Self::Bool(None)) => Self::Bool(a),
 
-            (Self::Bool(Some(a)), Self::Bool(Some(b))) => {
-                if a == b {
-                    Self::Bool(Some(a))
-                } else {
-                    Value::Bottom
-                }
-            }
+            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => Self::Bool(Some(a)),
+            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bottom,
 
-            (Self::Float(lhs), Self::Float(rhs)) => lhs.meet_with(rhs, rel_op_ord, Self::Float),
-            (Self::Int(lhs), Self::Int(rhs)) => lhs.meet_with(rhs, rel_op_ord, Self::Int),
+            (Self::Int(lhs), Self::Int(rhs)) => Self::meet_basic(lhs, rhs, Self::Int, rel_op_ord, Self::meet_rel_op_ord),
+            (Self::Float(lhs), Self::Float(rhs)) => Self::meet_basic(lhs, rhs, Self::Float, rel_op_ord, Self::meet_rel_op_ord),
 
-            (Self::Bytes(lhs), Self::Bytes(rhs)) => lhs.meet_with(rhs, rel_op_str, Self::Bytes),
-            (Self::String(lhs), Self::String(rhs)) => lhs.meet_with(rhs, rel_op_str, Self::String),
+            (Self::String(lhs), Self::String(rhs)) => Self::meet_basic(lhs, rhs, Self::String, |a, op, b| rel_op_str(a, op, b), Self::meet_rel_op_str),
+            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::meet_basic(lhs, rhs, Self::Bytes, |a, op, b| rel_op_str(a, op, b), Self::meet_rel_op_str),
 
             (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs, rhs),
             (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs, rhs),
 
-            (a, b) => Self::Conjunction(vec![a, b]),
+            _ => Self::Bottom, // probably some TODOs here
+        }
+    }
+
+    // supremum, least upper bound, anti-unification (|)
+    pub fn join(self: Self, other: Self) -> Self {
+        match (self, other) {
+            (a, b) if a == b => a,
+
+            (Self::Top, _) => Self::Top,
+            (_, Self::Top) => Self::Top,
+
+            (Self::Bottom, b) => b,
+            (a, Self::Bottom) => a,
+
+            (Self::Bool(None), Self::Bool(_)) => Self::Bool(None),
+            (Self::Bool(_), Self::Bool(None)) => Self::Bool(None),
+
+            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => Self::Bool(Some(a)),
+            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bool(None),
+
+            (Self::Int(lhs), Self::Int(rhs)) => Self::join_basic(lhs, rhs, Self::Int),
+            (Self::Float(lhs), Self::Float(rhs)) => Self::join_basic(lhs, rhs, Self::Float),
+
+            (Self::String(lhs), Self::String(rhs)) => Self::join_basic(lhs, rhs, Self::String),
+            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::join_basic(lhs, rhs, Self::Bytes),
+
+            (Self::Disjunction(a), b) => Self::extend_disjunction(a, b),
+            (a, Self::Disjunction(b)) => Self::extend_disjunction(b, a),
+
+            (a, b) => Self::Disjunction(vec![a, b]),
+        }
+    }
+
+
+    fn meet_basic<Op: Copy, T: PartialEq>(
+        lhs: Basic<Op, T>,
+        rhs: Basic<Op, T>,
+        construct: fn(Basic<Op, T>) -> Self,
+        rel_op: fn(&T, Op, &T) -> bool,
+        merge_rel_op: fn(Op, &T, Op, &T, fn(Basic<Op, T>) -> Self) -> Self,
+    ) -> Self {
+        match (&lhs, &rhs) {
+            (None, _) => construct(rhs),
+            (_, None) => construct(lhs),
+
+            (Some((None, a)), Some((None, b))) if a == b => construct(lhs),
+            (Some((None, _)), Some((None, _))) => Self::Bottom,
+
+            (Some((None, a)), Some((Some(op), b))) if rel_op(a, *op, b) => construct(lhs),
+            (Some((None, _)), Some((Some(_), _))) => Self::Bottom,
+            (Some((Some(op), a)), Some((None, b))) if rel_op(a, *op, b) => construct(rhs),
+            (Some((Some(_), _)), Some((None, _))) => Self::Bottom,
+
+            (Some((Some(opa), a)), Some((Some(opb), b))) => merge_rel_op(*opa, a, *opb, b, construct),
+        }
+    }
+
+    fn join_basic<Op: Copy, T: PartialEq>(
+        lhs: Basic<Op, T>,
+        rhs: Basic<Op, T>,
+        construct: fn(Basic<Op, T>) -> Self,
+    ) -> Self {
+        match (&lhs, &rhs) {
+            (None, _) => construct(lhs),
+            (_, None) => construct(rhs),
+
+            (Some((None, a)), Some((None, b))) if a == b => construct(lhs),
+            (_, _) => Self::Disjunction(vec![construct(lhs), construct(rhs)]),
+        }
+    }
+
+    fn meet_rel_op_str<T: Eq + Clone>(opa: RelOp, a: &T, opb: RelOp, b: &T, construct: fn(Basic<RelOp, T>) -> Self) -> Self {
+        match (opa, opb) {
+            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Some((None, a.clone()))),
+            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Some((None, a.clone()))),
+            (RelOp::NotEqual, RelOp::NotEqual)      if a == b => construct(Some((Some(opa), a.clone()))),
+            (RelOp::Match, RelOp::Match)            if a == b => construct(Some((Some(opa), a.clone()))),
+            (RelOp::NotMatch, RelOp::NotMatch)      if a == b => construct(Some((Some(opa), a.clone()))),
+            (RelOp::Match, RelOp::NotMatch)         if a == b => Self::Bottom,
+            (RelOp::NotMatch, RelOp::Match)         if a == b => Self::Bottom,
+
+            // ...
+
+            _ => Value::Conjunction(vec![construct(Some((Some(opa), a.clone()))), construct(Some((Some(opb), b.clone())))]),
+        }
+     }
+
+    fn meet_rel_op_ord<T: PartialEq + PartialOrd + Copy>(opa: RelOp, a: &T, opb: RelOp, b: &T, construct: fn(Basic<RelOp, T>) -> Self) -> Self {
+        // TODO: could this be implemented by applying rel_op_ord in some clever way?
+        match (opa, opb) {
+            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Some((None, *a))),
+            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Some((None, *a))),
+
+
+            (RelOp::GreaterThan, RelOp::GreaterThan)  if a >= b => construct(Some((Some(opa), *a))),
+            (RelOp::GreaterThan, RelOp::GreaterThan)  if a <  b => construct(Some((Some(opb), *b))),
+            (RelOp::GreaterThan, RelOp::GreaterEqual) if a >= b => construct(Some((Some(opa), *a))),
+            (RelOp::GreaterThan, RelOp::GreaterEqual) if a <  b => construct(Some((Some(opb), *b))),
+            (RelOp::GreaterThan, RelOp::LessThan)     if a >= b => Self::Bottom,
+            (RelOp::GreaterThan, RelOp::LessEqual)    if a >= b => Self::Bottom,
+            (RelOp::GreaterThan, RelOp::NotEqual)     if a <= b => construct(Some((Some(opa), *a))),
+
+            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a >= b => construct(Some((Some(opa), *a))),
+            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a <  b => construct(Some((Some(opb), *b))),
+            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a >  b => construct(Some((Some(opa), *a))),
+            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a <= b => construct(Some((Some(opb), *b))),
+            (RelOp::GreaterEqual, RelOp::LessEqual)    if a >= b => Self::Bottom,
+            (RelOp::GreaterEqual, RelOp::LessThan)     if a >= b => Self::Bottom,
+            (RelOp::GreaterEqual, RelOp::NotEqual)     if a <  b => construct(Some((Some(opa), *a))),
+
+
+            (RelOp::LessThan, RelOp::LessThan)     if a <= b => construct(Some((Some(opa), *a))),
+            (RelOp::LessThan, RelOp::LessThan)     if a >  b => construct(Some((Some(opb), *b))),
+            (RelOp::LessThan, RelOp::LessEqual)    if a <= b => construct(Some((Some(opa), *a))),
+            (RelOp::LessThan, RelOp::LessEqual)    if a >  b => construct(Some((Some(opb), *b))),
+            (RelOp::LessThan, RelOp::GreaterThan)  if a <= b => Self::Bottom,
+            (RelOp::LessThan, RelOp::GreaterEqual) if a <= b => Self::Bottom,
+            (RelOp::LessThan, RelOp::NotEqual)     if a >= b => construct(Some((Some(opa), *a))),
+
+            (RelOp::LessEqual, RelOp::LessEqual)    if a <= b => construct(Some((Some(opa), *a))),
+            (RelOp::LessEqual, RelOp::LessEqual)    if a >  b => construct(Some((Some(opb), *b))),
+            (RelOp::LessEqual, RelOp::LessThan)     if a <  b => construct(Some((Some(opa), *a))),
+            (RelOp::LessEqual, RelOp::LessThan)     if a >= b => construct(Some((Some(opb), *b))),
+            (RelOp::LessEqual, RelOp::GreaterThan)  if a <= b => Self::Bottom,
+            (RelOp::LessEqual, RelOp::GreaterEqual) if a <= b => Self::Bottom,
+            (RelOp::LessEqual, RelOp::NotEqual)     if a >  b => construct(Some((Some(opa), *a))),
+
+
+            (RelOp::NotEqual, RelOp::NotEqual)     if a == b => construct(Some((Some(opb), *b))),
+            (RelOp::NotEqual, RelOp::GreaterThan)  if a <= b => construct(Some((Some(opb), *b))),
+            (RelOp::NotEqual, RelOp::GreaterEqual) if a <  b => construct(Some((Some(opb), *b))),
+            (RelOp::NotEqual, RelOp::LessThan)     if a >= b => construct(Some((Some(opb), *b))),
+            (RelOp::NotEqual, RelOp::LessEqual)    if a >  b => construct(Some((Some(opb), *b))),
+
+            _ => Value::Conjunction(vec![construct(Some((Some(opa), *a))), construct(Some((Some(opb), *b)))]),
         }
     }
 
@@ -254,13 +258,15 @@ impl Value {
         }
     }
 
-    fn extend_disjunction(existing: Vec<Value>, extension: Value) -> Value {
+    fn extend_disjunction(mut existing: Vec<Value>, extension: Value) -> Value {
         for val in existing.iter() {
-            if val.clone().meet(extension.clone()) == *val {
-                return Self::Disjunction(existing);
+            if extension.clone() == *val {
+                return Self::Disjunction(existing)
             }
         }
-        return Self::Disjunction([existing, vec![extension]].concat());
+
+        existing.push(extension);
+        Self::Disjunction(existing)
     }
 }
 
@@ -295,9 +301,9 @@ fn test_basic_meets() {
     );
 
     assert_eq!(
-        Value::Int(BasicValue::Type)
-            .meet(Value::Int(BasicValue::Constraint(RelOp::GreaterThan, 3))),
-        Value::Int(BasicValue::Constraint(RelOp::GreaterThan, 3)),
+        Value::Int(None)
+            .meet(Value::Int(Some((Some(RelOp::GreaterThan), 3)))),
+        Value::Int(Some((Some(RelOp::GreaterThan), 3))),
         "int & >3 == >3"
     );
 }
@@ -307,13 +313,13 @@ fn test_int() {
     macro_rules! int_val {
         (_) => { Value::Top };
         (_|_) => { Value::Bottom };
-        (int) => { Value::Int(BasicValue::<i64>::Type) };
-        (   $a:literal) => { Value::Int(BasicValue::Concrete($a)) };
-        (>  $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::GreaterThan, $a)) };
-        (>= $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::GreaterEqual, $a)) };
-        (<  $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::LessThan, $a)) };
-        (<= $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::LessEqual, $a)) };
-        (!= $a:literal) => { Value::Int(BasicValue::Constraint(RelOp::NotEqual, $a)) };
+        (int) => { Value::Int(None) };
+        (   $a:literal) => { Value::Int(Some((None, $a))) };
+        (>  $a:literal) => { Value::Int(Some((Some(RelOp::GreaterThan), $a))) };
+        (>= $a:literal) => { Value::Int(Some((Some(RelOp::GreaterEqual), $a))) };
+        (<  $a:literal) => { Value::Int(Some((Some(RelOp::LessThan), $a))) };
+        (<= $a:literal) => { Value::Int(Some((Some(RelOp::LessEqual), $a))) };
+        (!= $a:literal) => { Value::Int(Some((Some(RelOp::NotEqual), $a))) };
         (($($a:tt)+) & ($($b:tt)+)) => { Value::Conjunction(vec![int_val!($($a)+), int_val!($($b)+)]) };
     }
 
@@ -357,8 +363,6 @@ fn test_int() {
     assert_int!((1) & (!=1) == (_|_));
     assert_int!((2) & (!=1) == (2));
 
-    assert_int!((<=1) & (>=1) == (1));
-
     assert_int!((>10) & (>1) == (>10));
     assert_int!((>10) & (>10) == (>10));
     assert_int!((>10) & (>100) == (>100));
@@ -370,6 +374,14 @@ fn test_int() {
     assert_int!((>10) & (!=1) == ((>10) & (!=1)));
     assert_int!((>10) & (!=10) == (>10));
     assert_int!((>10) & (!=100) == (>10));
+
+    assert_int!((>10) & (<1) == (_|_));
+    assert_int!((>10) & (<10) == (_|_));
+    assert_int!((>10) & (<100) == ((>10) & (<100)));
+
+    assert_int!((>10) & (<=1) == (_|_));
+    assert_int!((>10) & (<=10) == (_|_));
+    assert_int!((>10) & (<=100) == ((>10) & (<=100)));
 
 
     assert_int!((>=10) & (>=1) == (>=10));
@@ -384,6 +396,14 @@ fn test_int() {
     assert_int!((>=10) & (!=10) == ((>=10) & (!=10)));
     assert_int!((>=10) & (!=100) == (>=10));
 
+    assert_int!((>=10) & (<1) == (_|_));
+    assert_int!((>=10) & (<10) == (_|_));
+    assert_int!((>=10) & (<100) == ((>=10) & (<100)));
+
+    assert_int!((>=10) & (<=1) == (_|_));
+    assert_int!((>=10) & (<=10) == (10));
+    assert_int!((>=10) & (<=100) == ((>=10) & (<=100)));
+
 
     assert_int!((<10) & (<1) == (<1));
     assert_int!((<10) & (<10) == (<10));
@@ -397,6 +417,14 @@ fn test_int() {
     assert_int!((<10) & (!=10) == (<10));
     assert_int!((<10) & (!=100) == ((<10) & (!=100)));
 
+    assert_int!((<10) & (>1) == ((<10) & (>1)));
+    assert_int!((<10) & (>10) == (_|_));
+    assert_int!((<10) & (>100) == (_|_));
+
+    assert_int!((<10) & (>=1) == ((<10) & (>=1)));
+    assert_int!((<10) & (>=10) == (_|_));
+    assert_int!((<10) & (>=100) == (_|_));
+
 
     assert_int!((<=10) & (<=1) == (<=1));
     assert_int!((<=10) & (<=10) == (<=10));
@@ -409,6 +437,14 @@ fn test_int() {
     assert_int!((<=10) & (!=1) == (<=10));
     assert_int!((<=10) & (!=10) == ((<=10) & (!=10)));
     assert_int!((<=10) & (!=100) == ((<=10) & (!=100)));
+
+    assert_int!((<=10) & (>1) == ((<=10) & (>1)));
+    assert_int!((<=10) & (>10) == (_|_));
+    assert_int!((<=10) & (>100) == (_|_));
+
+    assert_int!((<=10) & (>=1) == ((<=10) & (>=1)));
+    assert_int!((<=10) & (>=10) == (10));
+    assert_int!((<=10) & (>=100) == (_|_));
 
 
     assert_int!((!=10) & (>1) == ((!=10) & (>1)));
