@@ -4,7 +4,12 @@ use regex::Regex;
 
 use super::op::RelOp;
 
-type Basic<Op, T> = Option<(Option<Op>, T)>;
+#[derive(Debug, PartialEq, Clone)]
+pub enum Basic<Op, T> {
+    Type,
+    Relation(Op, T),
+    Value(T)
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
@@ -142,21 +147,21 @@ impl Value {
         rhs: Basic<Op, T>,
         construct: fn(Basic<Op, T>) -> Self,
         rel_op: fn(&T, Op, &T) -> bool,
-        merge_rel_op: fn(Op, &T, Op, &T, fn(Basic<Op, T>) -> Self) -> Self,
+        meet_rel_op: fn(Op, &T, Op, &T, fn(Basic<Op, T>) -> Self) -> Self,
     ) -> Self {
         match (&lhs, &rhs) {
-            (None, _) => construct(rhs),
-            (_, None) => construct(lhs),
+            (Basic::Type, _) => construct(rhs),
+            (_, Basic::Type) => construct(lhs),
 
-            (Some((None, a)), Some((None, b))) if a == b => construct(lhs),
-            (Some((None, _)), Some((None, _))) => Self::Bottom,
+            (Basic::Value(a), Basic::Value(b)) if a == b => construct(lhs),
+            (Basic::Value(_), Basic::Value(_)) => Self::Bottom,
 
-            (Some((None, a)), Some((Some(op), b))) if rel_op(a, *op, b) => construct(lhs),
-            (Some((None, _)), Some((Some(_), _))) => Self::Bottom,
-            (Some((Some(op), a)), Some((None, b))) if rel_op(a, *op, b) => construct(rhs),
-            (Some((Some(_), _)), Some((None, _))) => Self::Bottom,
+            (Basic::Value(a), Basic::Relation(op, b)) if rel_op(a, *op, b) => construct(lhs),
+            (Basic::Value(_), Basic::Relation(_, _)) => Self::Bottom,
+            (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(rhs),
+            (Basic::Relation(_, _), Basic::Value(_)) => Self::Bottom,
 
-            (Some((Some(opa), a)), Some((Some(opb), b))) => merge_rel_op(*opa, a, *opb, b, construct),
+            (Basic::Relation(opa, a), Basic::Relation(opb, b)) => meet_rel_op(*opa, a, *opb, b, construct),
         }
     }
 
@@ -166,78 +171,78 @@ impl Value {
         construct: fn(Basic<Op, T>) -> Self,
     ) -> Self {
         match (&lhs, &rhs) {
-            (None, _) => construct(lhs),
-            (_, None) => construct(rhs),
+            (Basic::Type, _) => construct(lhs),
+            (_, Basic::Type) => construct(rhs),
 
-            (Some((None, a)), Some((None, b))) if a == b => construct(lhs),
+            (Basic::Value(a), Basic::Value(b)) if a == b => construct(lhs),
             (_, _) => Self::Disjunction(vec![construct(lhs), construct(rhs)]),
         }
     }
 
     fn meet_rel_op_str<T: Eq + Clone>(opa: RelOp, a: &T, opb: RelOp, b: &T, construct: fn(Basic<RelOp, T>) -> Self) -> Self {
         match (opa, opb) {
-            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Some((None, a.clone()))),
-            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Some((None, a.clone()))),
-            (RelOp::NotEqual, RelOp::NotEqual)      if a == b => construct(Some((Some(opa), a.clone()))),
-            (RelOp::Match, RelOp::Match)            if a == b => construct(Some((Some(opa), a.clone()))),
-            (RelOp::NotMatch, RelOp::NotMatch)      if a == b => construct(Some((Some(opa), a.clone()))),
+            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Basic::Value(a.clone())),
+            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Basic::Value(a.clone())),
+            (RelOp::NotEqual, RelOp::NotEqual)      if a == b => construct(Basic::Relation(opa, a.clone())),
+            (RelOp::Match, RelOp::Match)            if a == b => construct(Basic::Relation(opa, a.clone())),
+            (RelOp::NotMatch, RelOp::NotMatch)      if a == b => construct(Basic::Relation(opa, a.clone())),
             (RelOp::Match, RelOp::NotMatch)         if a == b => Self::Bottom,
             (RelOp::NotMatch, RelOp::Match)         if a == b => Self::Bottom,
 
             // ...
 
-            _ => Value::Conjunction(vec![construct(Some((Some(opa), a.clone()))), construct(Some((Some(opb), b.clone())))]),
+            _ => Value::Conjunction(vec![construct(Basic::Relation(opa, a.clone())), construct(Basic::Relation(opb, b.clone()))]),
         }
      }
 
     fn meet_rel_op_ord<T: PartialEq + PartialOrd + Copy>(opa: RelOp, a: &T, opb: RelOp, b: &T, construct: fn(Basic<RelOp, T>) -> Self) -> Self {
         // TODO: could this be implemented by applying rel_op_ord in some clever way?
         match (opa, opb) {
-            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Some((None, *a))),
-            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Some((None, *a))),
+            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Basic::Value(*a)),
+            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Basic::Value(*a)),
 
 
-            (RelOp::GreaterThan, RelOp::GreaterThan)  if a >= b => construct(Some((Some(opa), *a))),
-            (RelOp::GreaterThan, RelOp::GreaterThan)  if a <  b => construct(Some((Some(opb), *b))),
-            (RelOp::GreaterThan, RelOp::GreaterEqual) if a >= b => construct(Some((Some(opa), *a))),
-            (RelOp::GreaterThan, RelOp::GreaterEqual) if a <  b => construct(Some((Some(opb), *b))),
+            (RelOp::GreaterThan, RelOp::GreaterThan)  if a >= b => construct(Basic::Relation(opa, *a)),
+            (RelOp::GreaterThan, RelOp::GreaterThan)  if a <  b => construct(Basic::Relation(opb, *b)),
+            (RelOp::GreaterThan, RelOp::GreaterEqual) if a >= b => construct(Basic::Relation(opa, *a)),
+            (RelOp::GreaterThan, RelOp::GreaterEqual) if a <  b => construct(Basic::Relation(opb, *b)),
             (RelOp::GreaterThan, RelOp::LessThan)     if a >= b => Self::Bottom,
             (RelOp::GreaterThan, RelOp::LessEqual)    if a >= b => Self::Bottom,
-            (RelOp::GreaterThan, RelOp::NotEqual)     if a <= b => construct(Some((Some(opa), *a))),
+            (RelOp::GreaterThan, RelOp::NotEqual)     if a <= b => construct(Basic::Relation(opa, *a)),
 
-            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a >= b => construct(Some((Some(opa), *a))),
-            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a <  b => construct(Some((Some(opb), *b))),
-            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a >  b => construct(Some((Some(opa), *a))),
-            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a <= b => construct(Some((Some(opb), *b))),
+            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a >= b => construct(Basic::Relation(opa, *a)),
+            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a <  b => construct(Basic::Relation(opb, *b)),
+            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a >  b => construct(Basic::Relation(opa, *a)),
+            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a <= b => construct(Basic::Relation(opb, *b)),
             (RelOp::GreaterEqual, RelOp::LessEqual)    if a >= b => Self::Bottom,
             (RelOp::GreaterEqual, RelOp::LessThan)     if a >= b => Self::Bottom,
-            (RelOp::GreaterEqual, RelOp::NotEqual)     if a <  b => construct(Some((Some(opa), *a))),
+            (RelOp::GreaterEqual, RelOp::NotEqual)     if a <  b => construct(Basic::Relation(opa, *a)),
 
 
-            (RelOp::LessThan, RelOp::LessThan)     if a <= b => construct(Some((Some(opa), *a))),
-            (RelOp::LessThan, RelOp::LessThan)     if a >  b => construct(Some((Some(opb), *b))),
-            (RelOp::LessThan, RelOp::LessEqual)    if a <= b => construct(Some((Some(opa), *a))),
-            (RelOp::LessThan, RelOp::LessEqual)    if a >  b => construct(Some((Some(opb), *b))),
+            (RelOp::LessThan, RelOp::LessThan)     if a <= b => construct(Basic::Relation(opa, *a)),
+            (RelOp::LessThan, RelOp::LessThan)     if a >  b => construct(Basic::Relation(opb, *b)),
+            (RelOp::LessThan, RelOp::LessEqual)    if a <= b => construct(Basic::Relation(opa, *a)),
+            (RelOp::LessThan, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opb, *b)),
             (RelOp::LessThan, RelOp::GreaterThan)  if a <= b => Self::Bottom,
             (RelOp::LessThan, RelOp::GreaterEqual) if a <= b => Self::Bottom,
-            (RelOp::LessThan, RelOp::NotEqual)     if a >= b => construct(Some((Some(opa), *a))),
+            (RelOp::LessThan, RelOp::NotEqual)     if a >= b => construct(Basic::Relation(opa, *a)),
 
-            (RelOp::LessEqual, RelOp::LessEqual)    if a <= b => construct(Some((Some(opa), *a))),
-            (RelOp::LessEqual, RelOp::LessEqual)    if a >  b => construct(Some((Some(opb), *b))),
-            (RelOp::LessEqual, RelOp::LessThan)     if a <  b => construct(Some((Some(opa), *a))),
-            (RelOp::LessEqual, RelOp::LessThan)     if a >= b => construct(Some((Some(opb), *b))),
+            (RelOp::LessEqual, RelOp::LessEqual)    if a <= b => construct(Basic::Relation(opa, *a)),
+            (RelOp::LessEqual, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opb, *b)),
+            (RelOp::LessEqual, RelOp::LessThan)     if a <  b => construct(Basic::Relation(opa, *a)),
+            (RelOp::LessEqual, RelOp::LessThan)     if a >= b => construct(Basic::Relation(opb, *b)),
             (RelOp::LessEqual, RelOp::GreaterThan)  if a <= b => Self::Bottom,
             (RelOp::LessEqual, RelOp::GreaterEqual) if a <= b => Self::Bottom,
-            (RelOp::LessEqual, RelOp::NotEqual)     if a >  b => construct(Some((Some(opa), *a))),
+            (RelOp::LessEqual, RelOp::NotEqual)     if a >  b => construct(Basic::Relation(opa, *a)),
 
 
-            (RelOp::NotEqual, RelOp::NotEqual)     if a == b => construct(Some((Some(opb), *b))),
-            (RelOp::NotEqual, RelOp::GreaterThan)  if a <= b => construct(Some((Some(opb), *b))),
-            (RelOp::NotEqual, RelOp::GreaterEqual) if a <  b => construct(Some((Some(opb), *b))),
-            (RelOp::NotEqual, RelOp::LessThan)     if a >= b => construct(Some((Some(opb), *b))),
-            (RelOp::NotEqual, RelOp::LessEqual)    if a >  b => construct(Some((Some(opb), *b))),
+            (RelOp::NotEqual, RelOp::NotEqual)     if a == b => construct(Basic::Relation(opb, *b)),
+            (RelOp::NotEqual, RelOp::GreaterThan)  if a <= b => construct(Basic::Relation(opb, *b)),
+            (RelOp::NotEqual, RelOp::GreaterEqual) if a <  b => construct(Basic::Relation(opb, *b)),
+            (RelOp::NotEqual, RelOp::LessThan)     if a >= b => construct(Basic::Relation(opb, *b)),
+            (RelOp::NotEqual, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opb, *b)),
 
-            _ => Value::Conjunction(vec![construct(Some((Some(opa), *a))), construct(Some((Some(opb), *b)))]),
+            _ => Value::Conjunction(vec![construct(Basic::Relation(opa, *a)), construct(Basic::Relation(opb, *b))]),
         }
     }
 
@@ -301,9 +306,9 @@ fn test_basic_meets() {
     );
 
     assert_eq!(
-        Value::Int(None)
-            .meet(Value::Int(Some((Some(RelOp::GreaterThan), 3)))),
-        Value::Int(Some((Some(RelOp::GreaterThan), 3))),
+        Value::Int(Basic::Type)
+            .meet(Value::Int(Basic::Relation(RelOp::GreaterThan, 3))),
+        Value::Int(Basic::Relation(RelOp::GreaterThan, 3)),
         "int & >3 == >3"
     );
 }
@@ -313,13 +318,13 @@ fn test_int() {
     macro_rules! int_val {
         (_) => { Value::Top };
         (_|_) => { Value::Bottom };
-        (int) => { Value::Int(None) };
-        (   $a:literal) => { Value::Int(Some((None, $a))) };
-        (>  $a:literal) => { Value::Int(Some((Some(RelOp::GreaterThan), $a))) };
-        (>= $a:literal) => { Value::Int(Some((Some(RelOp::GreaterEqual), $a))) };
-        (<  $a:literal) => { Value::Int(Some((Some(RelOp::LessThan), $a))) };
-        (<= $a:literal) => { Value::Int(Some((Some(RelOp::LessEqual), $a))) };
-        (!= $a:literal) => { Value::Int(Some((Some(RelOp::NotEqual), $a))) };
+        (int) => { Value::Int(Basic::Type) };
+        (   $a:literal) => { Value::Int(Basic::Value($a)) };
+        (>  $a:literal) => { Value::Int(Basic::Relation(RelOp::GreaterThan, $a)) };
+        (>= $a:literal) => { Value::Int(Basic::Relation(RelOp::GreaterEqual, $a)) };
+        (<  $a:literal) => { Value::Int(Basic::Relation(RelOp::LessThan, $a)) };
+        (<= $a:literal) => { Value::Int(Basic::Relation(RelOp::LessEqual, $a)) };
+        (!= $a:literal) => { Value::Int(Basic::Relation(RelOp::NotEqual, $a)) };
         (($($a:tt)+) & ($($b:tt)+)) => { Value::Conjunction(vec![int_val!($($a)+), int_val!($($b)+)]) };
     }
 
