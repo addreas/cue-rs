@@ -31,12 +31,12 @@ pub enum Value {
 pub enum Basic<Op, T> {
     Type,
     Relation(Op, T),
-    Value(T)
+    Value(T),
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Field {
-    label: String,
+    label: Rc<str>,
     optional: bool,
     value: Value,
 }
@@ -44,6 +44,7 @@ pub struct Field {
 impl Value {
     // infimum, greatest lower bound, unification (&)
     pub fn meet(self: Self, other: Self) -> Self {
+        #[rustfmt::skip]
         match (self, other) {
             (a, b) if a == b => a,
 
@@ -74,6 +75,7 @@ impl Value {
 
     // supremum, least upper bound, anti-unification (|)
     pub fn join(self: Self, other: Self) -> Self {
+        #[rustfmt::skip]
         match (self, other) {
             (a, b) if a == b => a,
 
@@ -89,11 +91,11 @@ impl Value {
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => Self::Bool(Some(a)),
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bool(None),
 
-            (Self::Int(lhs), Self::Int(rhs)) => Self::join_basic(lhs, rhs, Self::Int),
+            (Self::Int(lhs  ), Self::Int(rhs  )) => Self::join_basic(lhs, rhs, Self::Int),
             (Self::Float(lhs), Self::Float(rhs)) => Self::join_basic(lhs, rhs, Self::Float),
 
+            (Self::Bytes(lhs ), Self::Bytes(rhs )) => Self::join_basic(lhs, rhs, Self::Bytes),
             (Self::String(lhs), Self::String(rhs)) => Self::join_basic(lhs, rhs, Self::String),
-            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::join_basic(lhs, rhs, Self::Bytes),
 
             (Self::Disjunction(a), b) => Self::extend_disjunction(a, b),
             (a, Self::Disjunction(b)) => Self::extend_disjunction(b, a),
@@ -101,7 +103,6 @@ impl Value {
             (a, b) => Self::Disjunction(vec![a, b]),
         }
     }
-
 
     fn meet_basic<Op: Copy, T: PartialEq>(
         lhs: Basic<Op, T>,
@@ -122,7 +123,9 @@ impl Value {
             (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(rhs),
             (Basic::Relation(_, _), Basic::Value(_)) => Self::Bottom,
 
-            (Basic::Relation(opa, a), Basic::Relation(opb, b)) => meet_rel_op(*opa, a, *opb, b, construct),
+            (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
+                meet_rel_op(*opa, a, *opb, b, construct)
+            }
         }
     }
 
@@ -140,7 +143,14 @@ impl Value {
         }
     }
 
-    fn meet_rel_op_str<T: Eq + Clone>(opa: RelOp, a: &T, opb: RelOp, b: &T, construct: fn(Basic<RelOp, T>) -> Self) -> Self {
+    fn meet_rel_op_str<T: Eq + Clone>(
+        opa: RelOp,
+        a: &T,
+        opb: RelOp,
+        b: &T,
+        construct: fn(Basic<RelOp, T>) -> Self,
+    ) -> Self {
+        #[rustfmt::skip]
         match (opa, opb) {
             (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Basic::Value(a.clone())),
             (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Basic::Value(a.clone())),
@@ -154,10 +164,17 @@ impl Value {
 
             _ => Value::Conjunction(vec![construct(Basic::Relation(opa, a.clone())), construct(Basic::Relation(opb, b.clone()))]),
         }
-     }
+    }
 
-    fn meet_rel_op_ord<T: PartialEq + PartialOrd + Copy>(opa: RelOp, a: &T, opb: RelOp, b: &T, construct: fn(Basic<RelOp, T>) -> Self) -> Self {
+    fn meet_rel_op_ord<T: PartialEq + PartialOrd + Copy>(
+        opa: RelOp,
+        a: &T,
+        opb: RelOp,
+        b: &T,
+        construct: fn(Basic<RelOp, T>) -> Self,
+    ) -> Self {
         // TODO: could this be implemented by applying rel_op_ord in some clever way?
+        #[rustfmt::skip]
         match (opa, opb) {
             (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Basic::Value(*a)),
             (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Basic::Value(*a)),
@@ -235,7 +252,26 @@ impl Value {
     }
 
     fn meet_structs(lhs: Vec<Field>, rhs: Vec<Field>) -> Value {
-        Value::Bottom
+        let mut fields: Vec<Field> = vec![];
+        for f in lhs.iter() {
+            let rhs_value = rhs
+                .iter()
+                .find(|ff| ff.label == f.label)
+                .map_or(Self::Top, |ff| ff.value.clone());
+            fields.push(Field {
+                label: f.label.clone(),
+                optional: f.optional,
+                value: f.value.clone().meet(rhs_value),
+            });
+        }
+        for f in rhs.iter() {
+            if lhs.iter().any(|ff| ff.label == f.label) {
+                continue;
+            }
+            fields.push(f.clone())
+        }
+
+        Self::Struct(fields)
     }
 
     fn meet_lists(lhs: Vec<Value>, rhs: Vec<Value>) -> Value {
@@ -254,12 +290,44 @@ impl Value {
     fn extend_disjunction(mut existing: Vec<Value>, extension: Value) -> Value {
         for val in existing.iter() {
             if extension.clone() == *val {
-                return Self::Disjunction(existing)
+                return Self::Disjunction(existing);
             }
         }
 
         existing.push(extension);
         Self::Disjunction(existing)
+    }
+}
+
+trait ToValue {
+    fn to_value(self) -> Value;
+    fn to_value_relation(self, op: RelOp) -> Value;
+}
+
+impl ToValue for &str {
+    fn to_value(self) -> Value {
+        Value::String(Basic::Value(Rc::from(self)))
+    }
+    fn to_value_relation(self, op: RelOp) -> Value {
+        Value::String(Basic::Relation(op, Rc::from(self)))
+    }
+}
+
+impl ToValue for i64 {
+    fn to_value(self) -> Value {
+        Value::Int(Basic::Value(self))
+    }
+    fn to_value_relation(self, op: RelOp) -> Value {
+        Value::Int(Basic::Relation(op, self))
+    }
+}
+
+impl ToValue for f64 {
+    fn to_value(self) -> Value {
+        Value::Float(Basic::Value(self))
+    }
+    fn to_value_relation(self, op: RelOp) -> Value {
+        Value::Float(Basic::Relation(op,self))
     }
 }
 
@@ -294,303 +362,335 @@ fn test_basic_meets() {
     );
 
     assert_eq!(
-        Value::Int(Basic::Type)
-            .meet(Value::Int(Basic::Relation(RelOp::GreaterThan, 3))),
+        Value::Int(Basic::Type).meet(Value::Int(Basic::Relation(RelOp::GreaterThan, 3))),
         Value::Int(Basic::Relation(RelOp::GreaterThan, 3)),
         "int & >3 == >3"
     );
 }
 
 #[allow(unused_macros)]
-macro_rules! int_val {
+macro_rules! cue_val {
     (_) => { Value::Top };
     (_|_) => { Value::Bottom };
+
     (int) => { Value::Int(Basic::Type) };
-    (   $a:literal) => { Value::Int(Basic::Value($a)) };
-    (>  $a:literal) => { Value::Int(Basic::Relation(RelOp::GreaterThan, $a)) };
-    (>= $a:literal) => { Value::Int(Basic::Relation(RelOp::GreaterEqual, $a)) };
-    (<  $a:literal) => { Value::Int(Basic::Relation(RelOp::LessThan, $a)) };
-    (<= $a:literal) => { Value::Int(Basic::Relation(RelOp::LessEqual, $a)) };
-    (!= $a:literal) => { Value::Int(Basic::Relation(RelOp::NotEqual, $a)) };
-    (($($a:tt)+) & ($($b:tt)+)) => { Value::Conjunction(vec![int_val!($($a)+), int_val!($($b)+)]) };
-    (($($a:tt)+) | ($($b:tt)+)) => { Value::Disjunction(vec![int_val!($($a)+), int_val!($($b)+)]) };
+    (float) => { Value::Float(Basic::Type) };
+    (bytes) => { Value::Bytes(Basic::Type) };
+    (string) => { Value::String(Basic::Type) };
+
+    (   $a:literal) => { $a.to_value() };
+    (>  $a:literal) => { $a.to_value_relation(RelOp::GreaterThan) };
+    (>= $a:literal) => { $a.to_value_relation(RelOp::GreaterEqual) };
+    (<  $a:literal) => { $a.to_value_relation(RelOp::LessThan) };
+    (<= $a:literal) => { $a.to_value_relation(RelOp::LessEqual) };
+    (!= $a:literal) => { $a.to_value_relation(RelOp::NotEqual) };
+
+    (($($a:tt)+) & ($($b:tt)+)) => { Value::Conjunction(vec![cue_val!($($a)+), cue_val!($($b)+)]) };
+    (($($a:tt)+) | ($($b:tt)+)) => { Value::Disjunction(vec![cue_val!($($a)+), cue_val!($($b)+)]) };
+
+    ({ $($k:ident: ($($v:tt)+)),* }) => {
+        Value::Struct(vec![
+            $(Field {
+                label: Rc::from(stringify!($k)),
+                optional: false,
+                value: cue_val!($($v)+),
+            }),*
+        ])
+    };
+
+    ([ $( ($($v:tt)+) ),* ]) => {
+        Value::List(vec![
+            $( cue_val!($($v)+) ),*
+        ])
+    };
 }
 
 #[allow(unused_macros)]
-macro_rules! assert_int {
+macro_rules! assert_cue {
     (($($a:tt)+) & ($($b:tt)+) == ($($c:tt)+)) => {
-        let a = int_val!($($a)+);
-        let b = int_val!($($b)+);
-        let c = int_val!($($c)+);
+        let a = cue_val!($($a)+);
+        let b = cue_val!($($b)+);
+        let c = cue_val!($($c)+);
         assert_eq!(
             a.meet(b),
             c,
-            "expect that {} & {} == {}",
+            "expect that ({}) & ({}) == ({})",
             stringify!($($a)+),
             stringify!($($b)+),
             stringify!($($c)+),
         )
     };
+
     (($($a:tt)+) | ($($b:tt)+) == ($($c:tt)+)) => {
-        let a = int_val!($($a)+);
-        let b = int_val!($($b)+);
-        let c = int_val!($($c)+);
+        let a = cue_val!($($a)+);
+        let b = cue_val!($($b)+);
+        let c = cue_val!($($c)+);
         assert_eq!(
             a.join(b),
             c,
-            "expect that {} | {} == {}",
+            "expect that ({}) | ({}) == ({})",
             stringify!($($a)+),
             stringify!($($b)+),
             stringify!($($c)+),
         )
     };
 }
+
 #[test]
 fn test_int_infimum() {
-    assert_int!((int) & (int) == (int));
-    assert_int!((int) & (1) == (1));
-    assert_int!((int) & (>1) == (>1));
+    assert_cue!((int) & (int) == (int));
+    assert_cue!((int) & (1) == (1));
+    assert_cue!((int) & (>1) == (>1));
 
-    assert_int!((0) & (>1) == (_|_));
-    assert_int!((1) & (>1) == (_|_));
-    assert_int!((2) & (>1) == (2));
+    assert_cue!((0) & (>1) == (_|_));
+    assert_cue!((1) & (>1) == (_|_));
+    assert_cue!((2) & (>1) == (2));
 
-    assert_int!((0) & (<1) == (0));
-    assert_int!((1) & (<1) == (_|_));
-    assert_int!((2) & (<1) == (_|_));
+    assert_cue!((0) & (<1) == (0));
+    assert_cue!((1) & (<1) == (_|_));
+    assert_cue!((2) & (<1) == (_|_));
 
-    assert_int!((0) & (>=1) == (_|_));
-    assert_int!((1) & (>=1) == (1));
-    assert_int!((2) & (>=1) == (2));
+    assert_cue!((0) & (>=1) == (_|_));
+    assert_cue!((1) & (>=1) == (1));
+    assert_cue!((2) & (>=1) == (2));
 
-    assert_int!((0) & (<=1) == (0));
-    assert_int!((1) & (<=1) == (1));
-    assert_int!((2) & (<=1) == (_|_));
+    assert_cue!((0) & (<=1) == (0));
+    assert_cue!((1) & (<=1) == (1));
+    assert_cue!((2) & (<=1) == (_|_));
 
-    assert_int!((0) & (!=1) == (0));
-    assert_int!((1) & (!=1) == (_|_));
-    assert_int!((2) & (!=1) == (2));
+    assert_cue!((0) & (!=1) == (0));
+    assert_cue!((1) & (!=1) == (_|_));
+    assert_cue!((2) & (!=1) == (2));
 
-    assert_int!((>10) & (>1) == (>10));
-    assert_int!((>10) & (>10) == (>10));
-    assert_int!((>10) & (>100) == (>100));
+    assert_cue!((>10) & (>1) == (>10));
+    assert_cue!((>10) & (>10) == (>10));
+    assert_cue!((>10) & (>100) == (>100));
 
-    assert_int!((>10) & (>=1) == (>10));
-    assert_int!((>10) & (>=10) == (>10));
-    assert_int!((>10) & (>=100) == (>=100));
+    assert_cue!((>10) & (>=1) == (>10));
+    assert_cue!((>10) & (>=10) == (>10));
+    assert_cue!((>10) & (>=100) == (>=100));
 
-    assert_int!((>10) & (!=1) == ((>10) & (!=1)));
-    assert_int!((>10) & (!=10) == (>10));
-    assert_int!((>10) & (!=100) == (>10));
+    assert_cue!((>10) & (!=1) == ((>10) & (!=1)));
+    assert_cue!((>10) & (!=10) == (>10));
+    assert_cue!((>10) & (!=100) == (>10));
 
-    assert_int!((>10) & (<1) == (_|_));
-    assert_int!((>10) & (<10) == (_|_));
-    assert_int!((>10) & (<100) == ((>10) & (<100)));
+    assert_cue!((>10) & (<1) == (_|_));
+    assert_cue!((>10) & (<10) == (_|_));
+    assert_cue!((>10) & (<100) == ((>10) & (<100)));
 
-    assert_int!((>10) & (<=1) == (_|_));
-    assert_int!((>10) & (<=10) == (_|_));
-    assert_int!((>10) & (<=100) == ((>10) & (<=100)));
+    assert_cue!((>10) & (<=1) == (_|_));
+    assert_cue!((>10) & (<=10) == (_|_));
+    assert_cue!((>10) & (<=100) == ((>10) & (<=100)));
 
+    assert_cue!((>=10) & (>=1) == (>=10));
+    assert_cue!((>=10) & (>=10) == (>=10));
+    assert_cue!((>=10) & (>=100) == (>=100));
 
-    assert_int!((>=10) & (>=1) == (>=10));
-    assert_int!((>=10) & (>=10) == (>=10));
-    assert_int!((>=10) & (>=100) == (>=100));
+    assert_cue!((>=10) & (>1) == (>=10));
+    assert_cue!((>=10) & (>10) == (>10));
+    assert_cue!((>=10) & (>100) == (>100));
 
-    assert_int!((>=10) & (>1) == (>=10));
-    assert_int!((>=10) & (>10) == (>10));
-    assert_int!((>=10) & (>100) == (>100));
+    assert_cue!((>=10) & (!=1) == ((>=10) & (!=1)));
+    assert_cue!((>=10) & (!=10) == ((>=10) & (!=10)));
+    assert_cue!((>=10) & (!=100) == (>=10));
 
-    assert_int!((>=10) & (!=1) == ((>=10) & (!=1)));
-    assert_int!((>=10) & (!=10) == ((>=10) & (!=10)));
-    assert_int!((>=10) & (!=100) == (>=10));
+    assert_cue!((>=10) & (<1) == (_|_));
+    assert_cue!((>=10) & (<10) == (_|_));
+    assert_cue!((>=10) & (<100) == ((>=10) & (<100)));
 
-    assert_int!((>=10) & (<1) == (_|_));
-    assert_int!((>=10) & (<10) == (_|_));
-    assert_int!((>=10) & (<100) == ((>=10) & (<100)));
+    assert_cue!((>=10) & (<=1) == (_|_));
+    assert_cue!((>=10) & (<=10) == (10));
+    assert_cue!((>=10) & (<=100) == ((>=10) & (<=100)));
 
-    assert_int!((>=10) & (<=1) == (_|_));
-    assert_int!((>=10) & (<=10) == (10));
-    assert_int!((>=10) & (<=100) == ((>=10) & (<=100)));
+    assert_cue!((<10) & (<1) == (<1));
+    assert_cue!((<10) & (<10) == (<10));
+    assert_cue!((<10) & (<100) == (<10));
 
+    assert_cue!((<10) & (<=1) == (<=1));
+    assert_cue!((<10) & (<=10) == (<10));
+    assert_cue!((<10) & (<=100) == (<10));
 
-    assert_int!((<10) & (<1) == (<1));
-    assert_int!((<10) & (<10) == (<10));
-    assert_int!((<10) & (<100) == (<10));
+    assert_cue!((<10) & (!=1) == (<10));
+    assert_cue!((<10) & (!=10) == (<10));
+    assert_cue!((<10) & (!=100) == ((<10) & (!=100)));
 
-    assert_int!((<10) & (<=1) == (<=1));
-    assert_int!((<10) & (<=10) == (<10));
-    assert_int!((<10) & (<=100) == (<10));
+    assert_cue!((<10) & (>1) == ((<10) & (>1)));
+    assert_cue!((<10) & (>10) == (_|_));
+    assert_cue!((<10) & (>100) == (_|_));
 
-    assert_int!((<10) & (!=1) == (<10));
-    assert_int!((<10) & (!=10) == (<10));
-    assert_int!((<10) & (!=100) == ((<10) & (!=100)));
+    assert_cue!((<10) & (>=1) == ((<10) & (>=1)));
+    assert_cue!((<10) & (>=10) == (_|_));
+    assert_cue!((<10) & (>=100) == (_|_));
 
-    assert_int!((<10) & (>1) == ((<10) & (>1)));
-    assert_int!((<10) & (>10) == (_|_));
-    assert_int!((<10) & (>100) == (_|_));
+    assert_cue!((<=10) & (<=1) == (<=1));
+    assert_cue!((<=10) & (<=10) == (<=10));
+    assert_cue!((<=10) & (<=100) == (<=10));
 
-    assert_int!((<10) & (>=1) == ((<10) & (>=1)));
-    assert_int!((<10) & (>=10) == (_|_));
-    assert_int!((<10) & (>=100) == (_|_));
+    assert_cue!((<=10) & (<1) == (<1));
+    assert_cue!((<=10) & (<10) == (<10));
+    assert_cue!((<=10) & (<100) == (<=10));
 
+    assert_cue!((<=10) & (!=1) == (<=10));
+    assert_cue!((<=10) & (!=10) == ((<=10) & (!=10)));
+    assert_cue!((<=10) & (!=100) == ((<=10) & (!=100)));
 
-    assert_int!((<=10) & (<=1) == (<=1));
-    assert_int!((<=10) & (<=10) == (<=10));
-    assert_int!((<=10) & (<=100) == (<=10));
+    assert_cue!((<=10) & (>1) == ((<=10) & (>1)));
+    assert_cue!((<=10) & (>10) == (_|_));
+    assert_cue!((<=10) & (>100) == (_|_));
 
-    assert_int!((<=10) & (<1) == (<1));
-    assert_int!((<=10) & (<10) == (<10));
-    assert_int!((<=10) & (<100) == (<=10));
+    assert_cue!((<=10) & (>=1) == ((<=10) & (>=1)));
+    assert_cue!((<=10) & (>=10) == (10));
+    assert_cue!((<=10) & (>=100) == (_|_));
 
-    assert_int!((<=10) & (!=1) == (<=10));
-    assert_int!((<=10) & (!=10) == ((<=10) & (!=10)));
-    assert_int!((<=10) & (!=100) == ((<=10) & (!=100)));
+    assert_cue!((!=10) & (>1) == ((!=10) & (>1)));
+    assert_cue!((!=10) & (>10) == (>10));
+    assert_cue!((!=10) & (>100) == (>100));
 
-    assert_int!((<=10) & (>1) == ((<=10) & (>1)));
-    assert_int!((<=10) & (>10) == (_|_));
-    assert_int!((<=10) & (>100) == (_|_));
+    assert_cue!((!=10) & (>=1) == ((!=10) & (>=1)));
+    assert_cue!((!=10) & (>=10) == ((!=10) & (>=10)));
+    assert_cue!((!=10) & (>=100) == (>=100));
 
-    assert_int!((<=10) & (>=1) == ((<=10) & (>=1)));
-    assert_int!((<=10) & (>=10) == (10));
-    assert_int!((<=10) & (>=100) == (_|_));
+    assert_cue!((!=10) & (<1) == (<1));
+    assert_cue!((!=10) & (<10) == (<10));
+    assert_cue!((!=10) & (<100) == ((!=10) & (<100)));
 
-
-    assert_int!((!=10) & (>1) == ((!=10) & (>1)));
-    assert_int!((!=10) & (>10) == (>10));
-    assert_int!((!=10) & (>100) == (>100));
-
-    assert_int!((!=10) & (>=1) == ((!=10) & (>=1)));
-    assert_int!((!=10) & (>=10) == ((!=10) & (>=10)));
-    assert_int!((!=10) & (>=100) == (>=100));
-
-    assert_int!((!=10) & (<1) == (<1));
-    assert_int!((!=10) & (<10) == (<10));
-    assert_int!((!=10) & (<100) == ((!=10) & (<100)));
-
-    assert_int!((!=10) & (<=1) == (<=1));
-    assert_int!((!=10) & (<=10) == ((!=10) & (<=10)));
-    assert_int!((!=10) & (<=100) == ((!=10) & (<=100)));
+    assert_cue!((!=10) & (<=1) == (<=1));
+    assert_cue!((!=10) & (<=10) == ((!=10) & (<=10)));
+    assert_cue!((!=10) & (<=100) == ((!=10) & (<=100)));
 }
 
 #[test]
 fn test_int_supremum() {
-    assert_int!((int) | (int) == (int));
-    assert_int!((int) | (1) == (int));
-    assert_int!((int) | (>1) == (int));
+    assert_cue!((int) | (int) == (int));
+    assert_cue!((int) | (1) == (int));
+    assert_cue!((int) | (>1) == (int));
 
-    assert_int!((0) | (>1) == ((0) | (>1)));
-    assert_int!((1) | (>1) == ((1) | (>1)));
-    assert_int!((2) | (>1) == (>1));
+    assert_cue!((0) | (>1) == ((0) | (>1)));
+    assert_cue!((1) | (>1) == ((1) | (>1)));
+    assert_cue!((2) | (>1) == (>1));
 
-    assert_int!((0) | (<1) == (<1));
-    assert_int!((1) | (<1) == ((1) | (<1)));
-    assert_int!((2) | (<1) == ((2) | (<1)));
+    assert_cue!((0) | (<1) == (<1));
+    assert_cue!((1) | (<1) == ((1) | (<1)));
+    assert_cue!((2) | (<1) == ((2) | (<1)));
 
-    assert_int!((0) | (>=1) == ((0) | (>=1)));
-    assert_int!((1) | (>=1) == (>=1));
-    assert_int!((2) | (>=1) == (>=1));
+    assert_cue!((0) | (>=1) == ((0) | (>=1)));
+    assert_cue!((1) | (>=1) == (>=1));
+    assert_cue!((2) | (>=1) == (>=1));
 
-    assert_int!((0) | (<=1) == (<=1));
-    assert_int!((1) | (<=1) == (>=1));
-    assert_int!((2) | (<=1) == ((2) | (<=1)));
+    assert_cue!((0) | (<=1) == (<=1));
+    assert_cue!((1) | (<=1) == (>=1));
+    assert_cue!((2) | (<=1) == ((2) | (<=1)));
 
-    assert_int!((0) | (!=1) == (!=1));
-    assert_int!((1) | (!=1) == (int));
-    assert_int!((2) | (!=1) == (!=1));
+    assert_cue!((0) | (!=1) == (!=1));
+    assert_cue!((1) | (!=1) == (int));
+    assert_cue!((2) | (!=1) == (!=1));
 
-    assert_int!((>10) | (>1) == (>1));
-    assert_int!((>10) | (>10) == (>10));
-    assert_int!((>10) | (>100) == (>10));
+    assert_cue!((>10) | (>1) == (>1));
+    assert_cue!((>10) | (>10) == (>10));
+    assert_cue!((>10) | (>100) == (>10));
 
-    assert_int!((>10) | (>=1) == (>=1));
-    assert_int!((>10) | (>=10) == (>=10));
-    assert_int!((>10) | (>=100) == (>10));
+    assert_cue!((>10) | (>=1) == (>=1));
+    assert_cue!((>10) | (>=10) == (>=10));
+    assert_cue!((>10) | (>=100) == (>10));
 
-    assert_int!((>10) | (!=1) == (!=1));
-    assert_int!((>10) | (!=10) == (!=10));
-    assert_int!((>10) | (!=100) == (int));
+    assert_cue!((>10) | (!=1) == (!=1));
+    assert_cue!((>10) | (!=10) == (!=10));
+    assert_cue!((>10) | (!=100) == (int));
 
-    assert_int!((>10) | (<1) == ((>10) | (<1)));
-    assert_int!((>10) | (<10) == (!=10)); // not true for floats
-    assert_int!((>10) | (<100) == (int));
+    assert_cue!((>10) | (<1) == ((>10) | (<1)));
+    assert_cue!((>10) | (<10) == (!=10)); // not true for floats
+    assert_cue!((>10) | (<100) == (int));
 
-    assert_int!((>10) | (<=1) == ((>10) | (<=1)));
-    assert_int!((>10) | (<=10) == (int));
-    assert_int!((>10) | (<=100) == (int));
+    assert_cue!((>10) | (<=1) == ((>10) | (<=1)));
+    assert_cue!((>10) | (<=10) == (int));
+    assert_cue!((>10) | (<=100) == (int));
 
-    assert_int!((>=10) | (>=1) == (>=1));
-    assert_int!((>=10) | (>=10) == (>=10));
-    assert_int!((>=10) | (>=100) == (>=10));
+    assert_cue!((>=10) | (>=1) == (>=1));
+    assert_cue!((>=10) | (>=10) == (>=10));
+    assert_cue!((>=10) | (>=100) == (>=10));
 
-    assert_int!((>=10) | (>1) == (>1));
-    assert_int!((>=10) | (>10) == (>=10));
-    assert_int!((>=10) | (>100) == (>=10));
+    assert_cue!((>=10) | (>1) == (>1));
+    assert_cue!((>=10) | (>10) == (>=10));
+    assert_cue!((>=10) | (>100) == (>=10));
 
-    assert_int!((>=10) | (!=1) == (!=1));
-    assert_int!((>=10) | (!=10) == (int));
-    assert_int!((>=10) | (!=100) == (int));
+    assert_cue!((>=10) | (!=1) == (!=1));
+    assert_cue!((>=10) | (!=10) == (int));
+    assert_cue!((>=10) | (!=100) == (int));
 
-    assert_int!((>=10) | (<1) == ((>=10) | (<1)));
-    assert_int!((>=10) | (<10) == (int));
-    assert_int!((>=10) | (<100) == (int));
+    assert_cue!((>=10) | (<1) == ((>=10) | (<1)));
+    assert_cue!((>=10) | (<10) == (int));
+    assert_cue!((>=10) | (<100) == (int));
 
-    assert_int!((>=10) | (<=1) == ((>=10) | (<=1)));
-    assert_int!((>=10) | (<=10) == (int));
-    assert_int!((>=10) | (<=100) == (int));
+    assert_cue!((>=10) | (<=1) == ((>=10) | (<=1)));
+    assert_cue!((>=10) | (<=10) == (int));
+    assert_cue!((>=10) | (<=100) == (int));
 
-    assert_int!((<10) | (<1) == (<10));
-    assert_int!((<10) | (<10) == (<10));
-    assert_int!((<10) | (<100) == (<100));
+    assert_cue!((<10) | (<1) == (<10));
+    assert_cue!((<10) | (<10) == (<10));
+    assert_cue!((<10) | (<100) == (<100));
 
-    assert_int!((<10) | (<=1) == (<10));
-    assert_int!((<10) | (<=10) == (<=10));
-    assert_int!((<10) | (<=100) == (<=100));
+    assert_cue!((<10) | (<=1) == (<10));
+    assert_cue!((<10) | (<=10) == (<=10));
+    assert_cue!((<10) | (<=100) == (<=100));
 
-    assert_int!((<10) | (!=1) == (int));
-    assert_int!((<10) | (!=10) == (!=10));
-    assert_int!((<10) | (!=100) == (!=100));
+    assert_cue!((<10) | (!=1) == (int));
+    assert_cue!((<10) | (!=10) == (!=10));
+    assert_cue!((<10) | (!=100) == (!=100));
 
-    assert_int!((<10) | (>1) == (int));
-    assert_int!((<10) | (>10) == (!=10)); // not true for floats
-    assert_int!((<10) | (>100) == ((<10) | (>100)));
+    assert_cue!((<10) | (>1) == (int));
+    assert_cue!((<10) | (>10) == (!=10)); // not true for floats
+    assert_cue!((<10) | (>100) == ((<10) | (>100)));
 
-    assert_int!((<10) | (>=1) == (int));
-    assert_int!((<10) | (>=10) == (int));
-    assert_int!((<10) | (>=100) == ((<10) | (>=100)));
+    assert_cue!((<10) | (>=1) == (int));
+    assert_cue!((<10) | (>=10) == (int));
+    assert_cue!((<10) | (>=100) == ((<10) | (>=100)));
 
-    assert_int!((<=10) | (<=1) == (<=10));
-    assert_int!((<=10) | (<=10) == (<=10));
-    assert_int!((<=10) | (<=100) == (<=100));
+    assert_cue!((<=10) | (<=1) == (<=10));
+    assert_cue!((<=10) | (<=10) == (<=10));
+    assert_cue!((<=10) | (<=100) == (<=100));
 
-    assert_int!((<=10) | (<1) == (<=10));
-    assert_int!((<=10) | (<10) == (<=10));
-    assert_int!((<=10) | (<100) == (<100));
+    assert_cue!((<=10) | (<1) == (<=10));
+    assert_cue!((<=10) | (<10) == (<=10));
+    assert_cue!((<=10) | (<100) == (<100));
 
-    assert_int!((<=10) | (!=1) == (int));
-    assert_int!((<=10) | (!=10) == (int));
-    assert_int!((<=10) | (!=100) == (!=100));
+    assert_cue!((<=10) | (!=1) == (int));
+    assert_cue!((<=10) | (!=10) == (int));
+    assert_cue!((<=10) | (!=100) == (!=100));
 
-    assert_int!((<=10) | (>1) == (int));
-    assert_int!((<=10) | (>10) == (int));
-    assert_int!((<=10) | (>100) == ((<=10) | (>100)));
+    assert_cue!((<=10) | (>1) == (int));
+    assert_cue!((<=10) | (>10) == (int));
+    assert_cue!((<=10) | (>100) == ((<=10) | (>100)));
 
-    assert_int!((<=10) | (>=1) == (int));
-    assert_int!((<=10) | (>=10) == (int));
-    assert_int!((<=10) | (>=100) == ((<=10) | (>=100)));
+    assert_cue!((<=10) | (>=1) == (int));
+    assert_cue!((<=10) | (>=10) == (int));
+    assert_cue!((<=10) | (>=100) == ((<=10) | (>=100)));
 
-    assert_int!((!=10) | (>1) == (int));
-    assert_int!((!=10) | (>10) == (!=10));
-    assert_int!((!=10) | (>100) == ((!=10) | (>100)));
+    assert_cue!((!=10) | (>1) == (int));
+    assert_cue!((!=10) | (>10) == (!=10));
+    assert_cue!((!=10) | (>100) == ((!=10) | (>100)));
 
-    assert_int!((!=10) | (>=1) == (int));
-    assert_int!((!=10) | (>=10) == (int));
-    assert_int!((!=10) | (>=100) == ((!=10) | (>=100)));
+    assert_cue!((!=10) | (>=1) == (int));
+    assert_cue!((!=10) | (>=10) == (int));
+    assert_cue!((!=10) | (>=100) == ((!=10) | (>=100)));
 
-    assert_int!((!=10) | (<1) == ((!=10) | (<1)));
-    assert_int!((!=10) | (<10) == (!=10));
-    assert_int!((!=10) | (<100) == (int));
+    assert_cue!((!=10) | (<1) == ((!=10) | (<1)));
+    assert_cue!((!=10) | (<10) == (!=10));
+    assert_cue!((!=10) | (<100) == (int));
 
-    assert_int!((!=10) | (<=1) == ((!=10) | (<=1)));
-    assert_int!((!=10) | (<=10) == (int));
-    assert_int!((!=10) | (<=100) == (int));
+    assert_cue!((!=10) | (<=1) == ((!=10) | (<=1)));
+    assert_cue!((!=10) | (<=10) == (int));
+    assert_cue!((!=10) | (<=100) == (int));
+}
+
+
+#[test]
+fn test_struct_infimum() {
+    assert_cue!(({}) & ({}) == ({}));
+    assert_cue!(({}) & ({a: (1), b: (2)}) == ({a: (1), b: (2)}));
+    assert_cue!(({a: (1)}) & ({b: (2)}) == ({a: (1), b: (2)}));
+    assert_cue!(({a: (1), b: (2)}) & ({}) == ({a: (1), b: (2)}));
+    assert_cue!(({a: (int)}) & ({a: (1)}) == ({a: (1)}));
+    assert_cue!(({a: (float)}) & ({a: (1.0)}) == ({a: (1.0)}));
+    assert_cue!(({a: (string)}) & ({a: ("hello")}) == ({a: ("hello")}));
+    assert_cue!(({a: (int)}) & ({a: ("hello")}) == ({a: (_|_)}));
 }
