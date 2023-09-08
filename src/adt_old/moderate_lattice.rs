@@ -74,6 +74,9 @@ impl Value {
             (Self::Struct(fields), embedded) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields), embedded]),
             (embedded, Self::Struct(fields)) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields), embedded]),
 
+            (Self::Disjunction(a), b) => Self::meet_disjunction(a, b),
+            (a, Self::Disjunction(b)) => Self::meet_disjunction(b, a),
+
             _ => Self::Bottom, // probably some TODOs here
         }
     }
@@ -102,8 +105,8 @@ impl Value {
             (Self::Bytes(lhs ), Self::Bytes(rhs )) => Self::join_basic(lhs, rhs, Self::Bytes),
             (Self::String(lhs), Self::String(rhs)) => Self::join_basic(lhs, rhs, Self::String),
 
-            (Self::Disjunction(a), b) => Self::extend_disjunction(a, b),
-            (a, Self::Disjunction(b)) => Self::extend_disjunction(b, a),
+            (Self::Disjunction(a), b) => Self::join_disjunction(a, b),
+            (a, Self::Disjunction(b)) => Self::join_disjunction(b, a),
 
             (a, b) => Self::Disjunction(vec![a, b]),
         }
@@ -283,9 +286,9 @@ impl Value {
 
     fn meet_lists(lhs: Vec<Value>, rhs: Vec<Value>) -> Value {
         if lhs.len() != rhs.len() {
-            Value::Bottom
+            Self::Bottom
         } else {
-            Value::List(
+            Self::List(
                 lhs.into_iter()
                     .zip(rhs.into_iter())
                     .map(|(l, r)| l.meet(r))
@@ -294,7 +297,23 @@ impl Value {
         }
     }
 
-    fn extend_disjunction(mut existing: Vec<Value>, extension: Value) -> Value {
+    fn meet_disjunction(items: Vec<Value>, operand: Value) -> Value {
+        let res: Vec<_> = items
+            .into_iter()
+            .map(|i| i.meet(operand.clone()))
+            .collect();
+
+        let non_bottoms: Vec<_> = res.into_iter().filter(|i| !i.is_bottom()).collect();
+
+        match non_bottoms.as_slice() {
+            [] => Self::Bottom,
+            [i] => i.clone(),
+            _ => Self::Disjunction(non_bottoms)
+        }
+
+    }
+
+    fn join_disjunction(mut existing: Vec<Value>, extension: Value) -> Value {
         for val in existing.iter() {
             if extension.clone() == *val {
                 return Self::Disjunction(existing);
@@ -303,6 +322,17 @@ impl Value {
 
         existing.push(extension);
         Self::Disjunction(existing)
+    }
+
+    pub fn is_bottom(self: &Self) -> bool {
+        return *self == Self::Bottom
+    }
+
+    pub fn to_option(self: Self) -> Option<Self> {
+        match self {
+            Self::Bottom => None,
+            other => Some(other),
+        }
     }
 }
 
@@ -334,56 +364,27 @@ impl ToValue for f64 {
         Value::Float(Basic::Value(self))
     }
     fn to_value_relation(self, op: RelOp) -> Value {
-        Value::Float(Basic::Relation(op,self))
+        Value::Float(Basic::Relation(op, self))
     }
 }
 
-#[test]
-fn test_basic_meets() {
-    assert_eq!(
-        Value::Top.meet(Value::Bottom),
-        Value::Bottom,
-        "_ & _|_ == _|_"
-    );
 
-    assert_eq!(
-        Value::Top.meet(Value::Null),
-        Value::Null,
-        "_ & null == null"
-    );
-
-    assert_eq!(
-        Value::Top.meet(Value::Bool(None)),
-        Value::Bool(None),
-        "_ & bool == bool"
-    );
-    assert_eq!(
-        Value::Top.meet(Value::Bool(Some(true))),
-        Value::Bool(Some(true)),
-        "_ & true == true"
-    );
-    assert_eq!(
-        Value::Bool(None).meet(Value::Bool(Some(true))),
-        Value::Bool(Some(true)),
-        "bool & true == true"
-    );
-
-    assert_eq!(
-        Value::Int(Basic::Type).meet(Value::Int(Basic::Relation(RelOp::GreaterThan, 3))),
-        Value::Int(Basic::Relation(RelOp::GreaterThan, 3)),
-        "int & >3 == >3"
-    );
-}
 
 #[allow(unused_macros)]
 macro_rules! cue_val {
     (_) => { Value::Top };
     (_|_) => { Value::Bottom };
 
+    (null) => { Value::Null };
+    (bool) => { Value::Bool(None) };
+    (true) => { Value::Bool(Some(true)) };
+    (false) => { Value::Bool(Some(false)) };
+
     (int) => { Value::Int(Basic::Type) };
     (float) => { Value::Float(Basic::Type) };
     (bytes) => { Value::Bytes(Basic::Type) };
     (string) => { Value::String(Basic::Type) };
+
 
     (   $a:literal) => { $a.to_value() };
     (>  $a:literal) => { $a.to_value_relation(RelOp::GreaterThan) };
@@ -392,8 +393,11 @@ macro_rules! cue_val {
     (<= $a:literal) => { $a.to_value_relation(RelOp::LessEqual) };
     (!= $a:literal) => { $a.to_value_relation(RelOp::NotEqual) };
 
-    (($($a:tt)+) & ($($b:tt)+)) => { Value::Conjunction(vec![cue_val!($($a)+), cue_val!($($b)+)]) };
-    (($($a:tt)+) | ($($b:tt)+)) => { Value::Disjunction(vec![cue_val!($($a)+), cue_val!($($b)+)]) };
+    (=~ $a:literal) => { $a.to_value_relation(RelOp::Match) };
+    (!~ $a:literal) => { $a.to_value_relation(RelOp::NotMatch) };
+
+    ( $(($($a:tt)+))&+ ) => { Value::Conjunction(vec![$(cue_val!($($a)+)),+ ]) };
+    ( $(($($a:tt)+))|+ ) => { Value::Disjunction(vec![$(cue_val!($($a)+)),+ ]) };
 
     ({ $($k:ident: ($($v:tt)+)),* }) => {
         Value::Struct(vec![
@@ -444,7 +448,14 @@ macro_rules! assert_cue {
         )
     };
 }
-
+#[test]
+fn test_basic_meets() {
+    assert_cue!((_) & (_|_) == (_|_));
+    assert_cue!((_) & (null) == (null));
+    assert_cue!((_) & (bool) == (bool));
+    assert_cue!((_) & (true) == (true));
+    assert_cue!((bool) & (true) == (true));
+}
 #[test]
 fn test_int_infimum() {
     assert_cue!((int) & (int) == (int));
@@ -691,7 +702,6 @@ fn test_int_supremum() {
     assert_cue!((!=10) | (<=100) == (int));
 }
 
-
 #[test]
 fn test_struct_infimum() {
     assert_cue!(({}) & ({}) == ({}));
@@ -702,4 +712,22 @@ fn test_struct_infimum() {
     assert_cue!(({a: (float)}) & ({a: (1.0)}) == ({a: (1.0)}));
     assert_cue!(({a: (string)}) & ({a: ("hello")}) == ({a: ("hello")}));
     assert_cue!(({a: (int)}) & ({a: ("hello")}) == ({a: (_|_)}));
+    assert_cue!(({a: (int)}) & ({b: ({c: ("d")})}) == ({a: (int), b: ({c: ("d")})}));
+}
+
+#[test]
+fn test_list_infimum() {
+    assert_cue!(([]) & ([]) == ([]));
+    assert_cue!(([]) & ([(1), (2), (3)]) == (_|_));
+    assert_cue!(([(int), (bool), (string)]) & ([(1), (bool), (=~"hello")]) == ([(1), (bool), (=~"hello")]));
+}
+
+#[test]
+fn test_disjunct_infimum() {
+    assert_cue!(((string) | (int) | (bool)) & (int) == (int));
+    assert_cue!(((string) | (int) | (bool)) & (null) == (_|_));
+    assert_cue!(((string) | (int) | (bool)) & (>2) == (>2));
+    assert_cue!(((string) | (int) | (bool)) & (2) == (2));
+    assert_cue!(((string) | (int) | (bool)) & ((2) | (true)) == ((2) | (true)));
+    assert_cue!(((string) | (2) | (bool)) & ((int) | (true)) == ((2) | (true)));
 }
