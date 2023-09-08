@@ -38,6 +38,8 @@ pub enum Basic<Op, T> {
 pub struct Field {
     label: Rc<str>,
     optional: bool,
+    definition: bool,
+    hidden: bool,
     value: Value,
 }
 
@@ -68,6 +70,9 @@ impl Value {
 
             (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs, rhs),
             (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs, rhs),
+
+            (Self::Struct(fields), embedded) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields), embedded]),
+            (embedded, Self::Struct(fields)) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields), embedded]),
 
             _ => Self::Bottom, // probably some TODOs here
         }
@@ -261,6 +266,8 @@ impl Value {
             fields.push(Field {
                 label: f.label.clone(),
                 optional: f.optional,
+                definition: f.definition,
+                hidden: f.hidden,
                 value: f.value.clone().meet(rhs_value),
             });
         }
@@ -393,6 +400,8 @@ macro_rules! cue_val {
             $(Field {
                 label: Rc::from(stringify!($k)),
                 optional: false,
+                definition: false,
+                hidden: false,
                 value: cue_val!($($v)+),
             }),*
         ])
