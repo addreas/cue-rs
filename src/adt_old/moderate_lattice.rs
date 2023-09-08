@@ -313,37 +313,52 @@ fn test_basic_meets() {
     );
 }
 
+#[allow(unused_macros)]
+macro_rules! int_val {
+    (_) => { Value::Top };
+    (_|_) => { Value::Bottom };
+    (int) => { Value::Int(Basic::Type) };
+    (   $a:literal) => { Value::Int(Basic::Value($a)) };
+    (>  $a:literal) => { Value::Int(Basic::Relation(RelOp::GreaterThan, $a)) };
+    (>= $a:literal) => { Value::Int(Basic::Relation(RelOp::GreaterEqual, $a)) };
+    (<  $a:literal) => { Value::Int(Basic::Relation(RelOp::LessThan, $a)) };
+    (<= $a:literal) => { Value::Int(Basic::Relation(RelOp::LessEqual, $a)) };
+    (!= $a:literal) => { Value::Int(Basic::Relation(RelOp::NotEqual, $a)) };
+    (($($a:tt)+) & ($($b:tt)+)) => { Value::Conjunction(vec![int_val!($($a)+), int_val!($($b)+)]) };
+    (($($a:tt)+) | ($($b:tt)+)) => { Value::Disjunction(vec![int_val!($($a)+), int_val!($($b)+)]) };
+}
+
+#[allow(unused_macros)]
+macro_rules! assert_int {
+    (($($a:tt)+) & ($($b:tt)+) == ($($c:tt)+)) => {
+        let a = int_val!($($a)+);
+        let b = int_val!($($b)+);
+        let c = int_val!($($c)+);
+        assert_eq!(
+            a.meet(b),
+            c,
+            "expect that {} & {} == {}",
+            stringify!($($a)+),
+            stringify!($($b)+),
+            stringify!($($c)+),
+        )
+    };
+    (($($a:tt)+) | ($($b:tt)+) == ($($c:tt)+)) => {
+        let a = int_val!($($a)+);
+        let b = int_val!($($b)+);
+        let c = int_val!($($c)+);
+        assert_eq!(
+            a.join(b),
+            c,
+            "expect that {} | {} == {}",
+            stringify!($($a)+),
+            stringify!($($b)+),
+            stringify!($($c)+),
+        )
+    };
+}
 #[test]
-fn test_int() {
-    macro_rules! int_val {
-        (_) => { Value::Top };
-        (_|_) => { Value::Bottom };
-        (int) => { Value::Int(Basic::Type) };
-        (   $a:literal) => { Value::Int(Basic::Value($a)) };
-        (>  $a:literal) => { Value::Int(Basic::Relation(RelOp::GreaterThan, $a)) };
-        (>= $a:literal) => { Value::Int(Basic::Relation(RelOp::GreaterEqual, $a)) };
-        (<  $a:literal) => { Value::Int(Basic::Relation(RelOp::LessThan, $a)) };
-        (<= $a:literal) => { Value::Int(Basic::Relation(RelOp::LessEqual, $a)) };
-        (!= $a:literal) => { Value::Int(Basic::Relation(RelOp::NotEqual, $a)) };
-        (($($a:tt)+) & ($($b:tt)+)) => { Value::Conjunction(vec![int_val!($($a)+), int_val!($($b)+)]) };
-    }
-
-    macro_rules! assert_int {
-        (($($a:tt)+) & ($($b:tt)+) == ($($c:tt)+)) => {
-            let a = int_val!($($a)+);
-            let b = int_val!($($b)+);
-            let c = int_val!($($c)+);
-            assert_eq!(
-                a.meet(b),
-                c,
-                "expect that {} & {} == {}",
-                stringify!($($a)+),
-                stringify!($($b)+),
-                stringify!($($c)+),
-            )
-        };
-    }
-
+fn test_int_infimum() {
     assert_int!((int) & (int) == (int));
     assert_int!((int) & (1) == (1));
     assert_int!((int) & (>1) == (>1));
@@ -467,4 +482,127 @@ fn test_int() {
     assert_int!((!=10) & (<=1) == (<=1));
     assert_int!((!=10) & (<=10) == ((!=10) & (<=10)));
     assert_int!((!=10) & (<=100) == ((!=10) & (<=100)));
+}
+
+#[test]
+fn test_int_supremum() {
+    assert_int!((int) | (int) == (int));
+    assert_int!((int) | (1) == (int));
+    assert_int!((int) | (>1) == (int));
+
+    assert_int!((0) | (>1) == ((0) | (>1)));
+    assert_int!((1) | (>1) == ((1) | (>1)));
+    assert_int!((2) | (>1) == (>1));
+
+    assert_int!((0) | (<1) == (<1));
+    assert_int!((1) | (<1) == ((1) | (<1)));
+    assert_int!((2) | (<1) == ((2) | (<1)));
+
+    assert_int!((0) | (>=1) == ((0) | (>=1)));
+    assert_int!((1) | (>=1) == (>=1));
+    assert_int!((2) | (>=1) == (>=1));
+
+    assert_int!((0) | (<=1) == (<=1));
+    assert_int!((1) | (<=1) == (>=1));
+    assert_int!((2) | (<=1) == ((2) | (<=1)));
+
+    assert_int!((0) | (!=1) == (!=1));
+    assert_int!((1) | (!=1) == (int));
+    assert_int!((2) | (!=1) == (!=1));
+
+    assert_int!((>10) | (>1) == (>1));
+    assert_int!((>10) | (>10) == (>10));
+    assert_int!((>10) | (>100) == (>10));
+
+    assert_int!((>10) | (>=1) == (>=1));
+    assert_int!((>10) | (>=10) == (>=10));
+    assert_int!((>10) | (>=100) == (>10));
+
+    assert_int!((>10) | (!=1) == (!=1));
+    assert_int!((>10) | (!=10) == (!=10));
+    assert_int!((>10) | (!=100) == (int));
+
+    assert_int!((>10) | (<1) == ((>10) | (<1)));
+    assert_int!((>10) | (<10) == (!=10)); // not true for floats
+    assert_int!((>10) | (<100) == (int));
+
+    assert_int!((>10) | (<=1) == ((>10) | (<=1)));
+    assert_int!((>10) | (<=10) == (int));
+    assert_int!((>10) | (<=100) == (int));
+
+    assert_int!((>=10) | (>=1) == (>=1));
+    assert_int!((>=10) | (>=10) == (>=10));
+    assert_int!((>=10) | (>=100) == (>=10));
+
+    assert_int!((>=10) | (>1) == (>1));
+    assert_int!((>=10) | (>10) == (>=10));
+    assert_int!((>=10) | (>100) == (>=10));
+
+    assert_int!((>=10) | (!=1) == (!=1));
+    assert_int!((>=10) | (!=10) == (int));
+    assert_int!((>=10) | (!=100) == (int));
+
+    assert_int!((>=10) | (<1) == ((>=10) | (<1)));
+    assert_int!((>=10) | (<10) == (int));
+    assert_int!((>=10) | (<100) == (int));
+
+    assert_int!((>=10) | (<=1) == ((>=10) | (<=1)));
+    assert_int!((>=10) | (<=10) == (int));
+    assert_int!((>=10) | (<=100) == (int));
+
+    assert_int!((<10) | (<1) == (<10));
+    assert_int!((<10) | (<10) == (<10));
+    assert_int!((<10) | (<100) == (<100));
+
+    assert_int!((<10) | (<=1) == (<10));
+    assert_int!((<10) | (<=10) == (<=10));
+    assert_int!((<10) | (<=100) == (<=100));
+
+    assert_int!((<10) | (!=1) == (int));
+    assert_int!((<10) | (!=10) == (!=10));
+    assert_int!((<10) | (!=100) == (!=100));
+
+    assert_int!((<10) | (>1) == (int));
+    assert_int!((<10) | (>10) == (!=10)); // not true for floats
+    assert_int!((<10) | (>100) == ((<10) | (>100)));
+
+    assert_int!((<10) | (>=1) == (int));
+    assert_int!((<10) | (>=10) == (int));
+    assert_int!((<10) | (>=100) == ((<10) | (>=100)));
+
+    assert_int!((<=10) | (<=1) == (<=10));
+    assert_int!((<=10) | (<=10) == (<=10));
+    assert_int!((<=10) | (<=100) == (<=100));
+
+    assert_int!((<=10) | (<1) == (<=10));
+    assert_int!((<=10) | (<10) == (<=10));
+    assert_int!((<=10) | (<100) == (<100));
+
+    assert_int!((<=10) | (!=1) == (int));
+    assert_int!((<=10) | (!=10) == (int));
+    assert_int!((<=10) | (!=100) == (!=100));
+
+    assert_int!((<=10) | (>1) == (int));
+    assert_int!((<=10) | (>10) == (int));
+    assert_int!((<=10) | (>100) == ((<=10) | (>100)));
+
+    assert_int!((<=10) | (>=1) == (int));
+    assert_int!((<=10) | (>=10) == (int));
+    assert_int!((<=10) | (>=100) == ((<=10) | (>=100)));
+
+    assert_int!((!=10) | (>1) == (int));
+    assert_int!((!=10) | (>10) == (!=10));
+    assert_int!((!=10) | (>100) == ((!=10) | (>100)));
+
+    assert_int!((!=10) | (>=1) == (int));
+    assert_int!((!=10) | (>=10) == (int));
+    assert_int!((!=10) | (>=100) == ((!=10) | (>=100)));
+
+    assert_int!((!=10) | (<1) == ((!=10) | (<1)));
+    assert_int!((!=10) | (<10) == (!=10));
+    assert_int!((!=10) | (<100) == (int));
+
+    assert_int!((!=10) | (<=1) == ((!=10) | (<=1)));
+    assert_int!((!=10) | (<=10) == (int));
+    assert_int!((!=10) | (<=100) == (int));
 }

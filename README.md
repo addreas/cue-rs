@@ -1,6 +1,6 @@
 # Nothing to see here
 
-Very WIP atm. Only implementing for fun, will probably give up at some point.
+Very WIP. Only implementing for fun, will probably give up at some point.
 
 # TODO: spec says arbitrary precision
 
