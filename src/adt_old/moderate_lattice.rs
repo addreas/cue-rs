@@ -5,13 +5,6 @@ use regex::Regex;
 use super::op::RelOp;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Basic<Op, T> {
-    Type,
-    Relation(Op, T),
-    Value(T)
-}
-
-#[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     Top,
 
@@ -34,6 +27,12 @@ pub enum Value {
     Bottom,
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum Basic<Op, T> {
+    Type,
+    Relation(Op, T),
+    Value(T)
+}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Field {
@@ -41,44 +40,6 @@ pub struct Field {
     optional: bool,
     value: Value,
 }
-
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum BasicValue<T> {
-    Type,
-    Constraint(RelOp, T),
-    Concrete(T),
-}
-
-fn rel_op_ord<T: PartialEq + PartialOrd>(lhs: &T, op: RelOp, rhs: &T) -> bool {
-    match op {
-        RelOp::NotEqual => lhs != rhs,
-
-        RelOp::GreaterEqual => lhs >= rhs,
-        RelOp::GreaterThan => lhs > rhs,
-        RelOp::LessEqual => lhs <= rhs,
-        RelOp::LessThan => lhs < rhs,
-
-        _ => false,
-    }
-}
-
-
-fn rel_op_str(lhs: &str, op: RelOp, rhs: &str) -> bool {
-    match op {
-        RelOp::NotEqual => lhs != rhs,
-
-        RelOp::GreaterEqual => lhs >= rhs,
-        RelOp::GreaterThan => lhs > rhs,
-        RelOp::LessEqual => lhs <= rhs,
-        RelOp::LessThan => lhs < rhs,
-
-        RelOp::Match => Regex::new(rhs).unwrap().is_match(lhs),
-        RelOp::NotMatch => !Regex::new(rhs).unwrap().is_match(lhs),
-
-        _ => false,
-    }
-}
-
 
 impl Value {
     // infimum, greatest lower bound, unification (&)
@@ -98,11 +59,11 @@ impl Value {
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => Self::Bool(Some(a)),
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bottom,
 
-            (Self::Int(lhs), Self::Int(rhs)) => Self::meet_basic(lhs, rhs, Self::Int, rel_op_ord, Self::meet_rel_op_ord),
-            (Self::Float(lhs), Self::Float(rhs)) => Self::meet_basic(lhs, rhs, Self::Float, rel_op_ord, Self::meet_rel_op_ord),
+            (Self::Int(lhs), Self::Int(rhs)) => Self::meet_basic(lhs, rhs, Self::Int, Self::rel_op_ord, Self::meet_rel_op_ord),
+            (Self::Float(lhs), Self::Float(rhs)) => Self::meet_basic(lhs, rhs, Self::Float, Self::rel_op_ord, Self::meet_rel_op_ord),
 
-            (Self::String(lhs), Self::String(rhs)) => Self::meet_basic(lhs, rhs, Self::String, |a, op, b| rel_op_str(a, op, b), Self::meet_rel_op_str),
-            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::meet_basic(lhs, rhs, Self::Bytes, |a, op, b| rel_op_str(a, op, b), Self::meet_rel_op_str),
+            (Self::String(lhs), Self::String(rhs)) => Self::meet_basic(lhs, rhs, Self::String, |a, op, b| Self::rel_op_str(a, op, b), Self::meet_rel_op_str),
+            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::meet_basic(lhs, rhs, Self::Bytes, |a, op, b| Self::rel_op_str(a, op, b), Self::meet_rel_op_str),
 
             (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs, rhs),
             (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs, rhs),
@@ -243,6 +204,33 @@ impl Value {
             (RelOp::NotEqual, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opb, *b)),
 
             _ => Value::Conjunction(vec![construct(Basic::Relation(opa, *a)), construct(Basic::Relation(opb, *b))]),
+        }
+    }
+
+    fn rel_op_str(lhs: &str, op: RelOp, rhs: &str) -> bool {
+        match op {
+            RelOp::NotEqual => lhs != rhs,
+
+            RelOp::GreaterEqual => lhs >= rhs,
+            RelOp::GreaterThan => lhs > rhs,
+            RelOp::LessEqual => lhs <= rhs,
+            RelOp::LessThan => lhs < rhs,
+
+            RelOp::Match => Regex::new(rhs).unwrap().is_match(lhs),
+            RelOp::NotMatch => !Regex::new(rhs).unwrap().is_match(lhs),
+        }
+    }
+
+    fn rel_op_ord<T: PartialEq + PartialOrd>(lhs: &T, op: RelOp, rhs: &T) -> bool {
+        match op {
+            RelOp::NotEqual => lhs != rhs,
+
+            RelOp::GreaterEqual => lhs >= rhs,
+            RelOp::GreaterThan => lhs > rhs,
+            RelOp::LessEqual => lhs <= rhs,
+            RelOp::LessThan => lhs < rhs,
+
+            _ => false,
         }
     }
 
