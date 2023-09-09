@@ -8,11 +8,11 @@ use super::op::RelOp;
 pub enum Value {
     Top,
 
-    Disjunction(Vec<Value>),
-    Conjunction(Vec<Value>),
+    Disjunction(Vec<Rc<Value>>),
+    Conjunction(Vec<Rc<Value>>),
 
     Struct(Vec<Field>),
-    List(Vec<Value>),
+    List(Vec<Rc<Value>>),
 
     String(Basic<RelOp, Rc<str>>),
     Bytes(Basic<RelOp, Rc<str>>),
@@ -40,75 +40,75 @@ pub struct Field {
     optional: bool,
     definition: bool,
     hidden: bool,
-    value: Value,
+    value: Rc<Value>,
 }
 
 impl Value {
     // infimum, greatest lower bound, unification (&)
-    pub fn meet(self: Self, other: Self) -> Self {
+    pub fn meet(self: Rc<Self>, other: Rc<Self>) -> Rc<Self> {
         #[rustfmt::skip]
-        match (self, other) {
-            (a, b) if a == b => a,
+        match (self.as_ref(), other.as_ref()) {
+            (a, b) if a == b => self,
 
-            (Self::Top, b) => b,
-            (a, Self::Top) => a,
+            (Self::Top, _) => other,
+            (_, Self::Top) => self,
 
-            (Self::Bottom, _) => Self::Bottom,
-            (_, Self::Bottom) => Self::Bottom,
+            (Self::Bottom, _) => self,
+            (_, Self::Bottom) => other,
 
-            (Self::Bool(None), Self::Bool(b)) => Self::Bool(b),
-            (Self::Bool(a), Self::Bool(None)) => Self::Bool(a),
+            (Self::Bool(None), Self::Bool(_)) => other,
+            (Self::Bool(_), Self::Bool(None)) => self,
 
-            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => Self::Bool(Some(a)),
-            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bottom,
+            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => self,
+            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bottom.into(),
 
-            (Self::Int(lhs), Self::Int(rhs)) => Self::meet_basic(lhs, rhs, Self::Int, Self::rel_op_ord, Self::meet_rel_op_ord),
-            (Self::Float(lhs), Self::Float(rhs)) => Self::meet_basic(lhs, rhs, Self::Float, Self::rel_op_ord, Self::meet_rel_op_ord),
+            (Self::Int(lhs), Self::Int(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Int, Self::rel_op_ord, Self::meet_rel_op_ord).into(),
+            (Self::Float(lhs), Self::Float(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Float, Self::rel_op_ord, Self::meet_rel_op_ord).into(),
 
-            (Self::String(lhs), Self::String(rhs)) => Self::meet_basic(lhs, rhs, Self::String, |a, op, b| Self::rel_op_str(a, op, b), Self::meet_rel_op_str),
-            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::meet_basic(lhs, rhs, Self::Bytes, |a, op, b| Self::rel_op_str(a, op, b), Self::meet_rel_op_str),
+            (Self::String(lhs), Self::String(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::String, |a, op, b| Self::rel_op_str(a, op, b), Self::meet_rel_op_str).into(),
+            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Bytes, |a, op, b| Self::rel_op_str(a, op, b), Self::meet_rel_op_str).into(),
 
-            (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs, rhs),
-            (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs, rhs),
+            (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs.clone(), rhs.clone()).into(),
+            (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs.clone(), rhs.clone()).into(),
 
-            (Self::Struct(fields), embedded) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields), embedded]),
-            (embedded, Self::Struct(fields)) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields), embedded]),
+            (Self::Struct(fields), _) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields.clone()).into(), other]).into(),
+            (_, Self::Struct(fields)) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields.clone()).into(), self]).into(),
 
-            (Self::Disjunction(a), b) => Self::meet_disjunction(a, b),
-            (a, Self::Disjunction(b)) => Self::meet_disjunction(b, a),
+            (Self::Disjunction(lhs), _) => Self::meet_disjunction(lhs.clone(), other),
+            (_, Self::Disjunction(rhs)) => Self::meet_disjunction(rhs.clone(), self),
 
-            _ => Self::Bottom, // probably some TODOs here
+            (_, _) => Self::Bottom.into(), // probably some TODOs here
         }
     }
 
     // supremum, least upper bound, anti-unification (|)
-    pub fn join(self: Self, other: Self) -> Self {
+    pub fn join(self: Rc<Self>, other: Rc<Self>) -> Rc<Self> {
         #[rustfmt::skip]
-        match (self, other) {
-            (a, b) if a == b => a,
+        match (self.as_ref(), other.as_ref()) {
+            (a, b) if a == b => self,
 
-            (Self::Top, _) => Self::Top,
-            (_, Self::Top) => Self::Top,
+            (Self::Top, _) => self,
+            (_, Self::Top) => other,
 
-            (Self::Bottom, b) => b,
-            (a, Self::Bottom) => a,
+            (Self::Bottom, _) => other,
+            (_, Self::Bottom) => self,
 
-            (Self::Bool(None), Self::Bool(_)) => Self::Bool(None),
-            (Self::Bool(_), Self::Bool(None)) => Self::Bool(None),
+            (Self::Bool(None), Self::Bool(_)) => self,
+            (Self::Bool(_), Self::Bool(None)) => other,
 
-            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => Self::Bool(Some(a)),
-            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bool(None),
+            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => self,
+            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bool(None).into(),
 
-            (Self::Int(lhs  ), Self::Int(rhs  )) => Self::join_basic(lhs, rhs, Self::Int),
-            (Self::Float(lhs), Self::Float(rhs)) => Self::join_basic(lhs, rhs, Self::Float),
+            (Self::Int(lhs  ), Self::Int(rhs  )) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Int).into(),
+            (Self::Float(lhs), Self::Float(rhs)) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Float).into(),
 
-            (Self::Bytes(lhs ), Self::Bytes(rhs )) => Self::join_basic(lhs, rhs, Self::Bytes),
-            (Self::String(lhs), Self::String(rhs)) => Self::join_basic(lhs, rhs, Self::String),
+            (Self::Bytes(lhs ), Self::Bytes(rhs )) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Bytes).into(),
+            (Self::String(lhs), Self::String(rhs)) => Self::join_basic(lhs.clone(), rhs.clone(), Self::String).into(),
 
-            (Self::Disjunction(a), b) => Self::join_disjunction(a, b),
-            (a, Self::Disjunction(b)) => Self::join_disjunction(b, a),
+            (Self::Disjunction(lhs), _) => Self::join_disjunction(lhs.clone(), other).into(),
+            (_, Self::Disjunction(rhs)) => Self::join_disjunction(rhs.clone(), self).into(),
 
-            (a, b) => Self::Disjunction(vec![a, b]),
+            (_, _) => Self::Disjunction(vec![self, other]).into(),
         }
     }
 
@@ -147,7 +147,7 @@ impl Value {
             (_, Basic::Type) => construct(rhs),
 
             (Basic::Value(a), Basic::Value(b)) if a == b => construct(lhs),
-            (_, _) => Self::Disjunction(vec![construct(lhs), construct(rhs)]),
+            (_, _) => Self::Disjunction(vec![construct(lhs).into(), construct(rhs).into()]),
         }
     }
 
@@ -170,7 +170,10 @@ impl Value {
 
             // ...
 
-            _ => Value::Conjunction(vec![construct(Basic::Relation(opa, a.clone())), construct(Basic::Relation(opb, b.clone()))]),
+            _ => Value::Conjunction(vec![
+                construct(Basic::Relation(opa, a.clone())).into(),
+                construct(Basic::Relation(opb, b.clone())).into()
+            ]),
         }
     }
 
@@ -228,7 +231,10 @@ impl Value {
             (RelOp::NotEqual, RelOp::LessThan)     if a >= b => construct(Basic::Relation(opb, *b)),
             (RelOp::NotEqual, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opb, *b)),
 
-            _ => Value::Conjunction(vec![construct(Basic::Relation(opa, *a)), construct(Basic::Relation(opb, *b))]),
+            _ => Value::Conjunction(vec![
+                construct(Basic::Relation(opa, *a)).into(),
+                construct(Basic::Relation(opb, *b)).into()
+            ]),
         }
     }
 
@@ -265,7 +271,7 @@ impl Value {
             let rhs_value = rhs
                 .iter()
                 .find(|ff| ff.label == f.label)
-                .map_or(Self::Top, |ff| ff.value.clone());
+                .map_or(Self::Top.into(), |ff| ff.value.clone());
             fields.push(Field {
                 label: f.label.clone(),
                 optional: f.optional,
@@ -284,7 +290,7 @@ impl Value {
         Self::Struct(fields)
     }
 
-    fn meet_lists(lhs: Vec<Value>, rhs: Vec<Value>) -> Value {
+    fn meet_lists(lhs: Vec<Rc<Value>>, rhs: Vec<Rc<Value>>) -> Value {
         if lhs.len() != rhs.len() {
             Self::Bottom
         } else {
@@ -297,7 +303,7 @@ impl Value {
         }
     }
 
-    fn meet_disjunction(items: Vec<Value>, operand: Value) -> Value {
+    fn meet_disjunction(items: Vec<Rc<Value>>, operand: Rc<Value>) -> Rc<Value> {
         let res: Vec<_> = items
             .into_iter()
             .map(|i| i.meet(operand.clone()))
@@ -306,14 +312,14 @@ impl Value {
         let non_bottoms: Vec<_> = res.into_iter().filter(|i| !i.is_bottom()).collect();
 
         match non_bottoms.as_slice() {
-            [] => Self::Bottom,
+            [] => Self::Bottom.into(),
             [i] => i.clone(),
-            _ => Self::Disjunction(non_bottoms)
+            _ => Self::Disjunction(non_bottoms).into()
         }
 
     }
 
-    fn join_disjunction(mut existing: Vec<Value>, extension: Value) -> Value {
+    fn join_disjunction(mut existing: Vec<Rc<Value>>, extension: Rc<Value>) -> Value {
         for val in existing.iter() {
             if extension.clone() == *val {
                 return Self::Disjunction(existing);
@@ -396,24 +402,24 @@ macro_rules! cue_val {
     (=~ $a:literal) => { $a.to_value_relation(RelOp::Match) };
     (!~ $a:literal) => { $a.to_value_relation(RelOp::NotMatch) };
 
-    ( $(($($a:tt)+))&+ ) => { Value::Conjunction(vec![$(cue_val!($($a)+)),+ ]) };
-    ( $(($($a:tt)+))|+ ) => { Value::Disjunction(vec![$(cue_val!($($a)+)),+ ]) };
+    ( $(($($a:tt)+))&+ ) => { Value::Conjunction(vec![$( cue_val!($($a)+).into() ),+ ]) };
+    ( $(($($a:tt)+))|+ ) => { Value::Disjunction(vec![$( cue_val!($($a)+).into() ),+ ]) };
 
     ({ $($k:ident: ($($v:tt)+)),* }) => {
         Value::Struct(vec![
             $(Field {
-                label: Rc::from(stringify!($k)),
+                label: stringify!($k).into(),
                 optional: false,
                 definition: false,
                 hidden: false,
-                value: cue_val!($($v)+),
+                value: cue_val!($($v)+).into(),
             }),*
         ])
     };
 
     ([ $( ($($v:tt)+) ),* ]) => {
         Value::List(vec![
-            $( cue_val!($($v)+) ),*
+            $( cue_val!($($v)+).into() ),*
         ])
     };
 }
@@ -421,9 +427,9 @@ macro_rules! cue_val {
 #[allow(unused_macros)]
 macro_rules! assert_cue {
     (($($a:tt)+) & ($($b:tt)+) == ($($c:tt)+)) => {
-        let a = cue_val!($($a)+);
-        let b = cue_val!($($b)+);
-        let c = cue_val!($($c)+);
+        let a = Rc::from(cue_val!($($a)+));
+        let b = Rc::from(cue_val!($($b)+));
+        let c = Rc::from(cue_val!($($c)+));
         assert_eq!(
             a.meet(b),
             c,
@@ -435,9 +441,9 @@ macro_rules! assert_cue {
     };
 
     (($($a:tt)+) | ($($b:tt)+) == ($($c:tt)+)) => {
-        let a = cue_val!($($a)+);
-        let b = cue_val!($($b)+);
-        let c = cue_val!($($c)+);
+        let a = Rc::from(cue_val!($($a)+));
+        let b = Rc::from(cue_val!($($b)+));
+        let c = Rc::from(cue_val!($($c)+));
         assert_eq!(
             a.join(b),
             c,
