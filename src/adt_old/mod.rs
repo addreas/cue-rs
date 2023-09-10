@@ -14,5 +14,4 @@ pub mod lattice;
 #[cfg(test)]
 pub mod lattice_test;
 pub mod op;
-pub mod moderate_lattice;
 
