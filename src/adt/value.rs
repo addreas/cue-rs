@@ -117,7 +117,7 @@ impl Value {
         rhs: Basic<Op, T>,
         construct: fn(Basic<Op, T>) -> Self,
         rel_op: fn(&T, Op, &T) -> bool,
-        meet_rel_op: fn(Op, &T, Op, &T, fn(Basic<Op, T>) -> Self) -> Self,
+        meet_rel_op: fn((Op, &T), (Op, &T), fn(Basic<Op, T>) -> Self) -> Self,
     ) -> Self {
         match (&lhs, &rhs) {
             (Basic::Type, _) => construct(rhs),
@@ -129,19 +129,19 @@ impl Value {
             (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(rhs),
 
             (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
-                meet_rel_op(*opa, a, *opb, b, construct)
+                meet_rel_op((*opa, a), (*opb, b), construct)
             }
 
             (_, _) => Self::Bottom,
         }
     }
 
-    fn join_basic<Op: Copy, T: PartialEq>(
-        lhs: Basic<Op, T>,
-        rhs: Basic<Op, T>,
-        construct: fn(Basic<Op, T>) -> Self,
-        rel_op: fn(&T, Op, &T) -> bool,
-        join_rel_op: fn(Op, &T, Op, &T, fn(Basic<Op, T>) -> Self) -> Self,
+    fn join_basic<T: PartialEq>(
+        lhs: Basic<RelOp, T>,
+        rhs: Basic<RelOp, T>,
+        construct: fn(Basic<RelOp, T>) -> Self,
+        rel_op: fn(&T, RelOp, &T) -> bool,
+        join_rel_op: fn((RelOp, &T), (RelOp, &T), fn(Basic<RelOp, T>) -> Self) -> Self,
     ) -> Self {
         match (&lhs, &rhs) {
             (Basic::Type, _) => construct(lhs),
@@ -150,10 +150,12 @@ impl Value {
             (Basic::Value(a), Basic::Value(b)) if a == b => construct(lhs),
 
             (Basic::Value(a), Basic::Relation(op, b)) if rel_op(a, *op, b) => construct(rhs),
+            (Basic::Value(a), Basic::Relation(op, b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
             (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(lhs),
+            (Basic::Relation(op, a), Basic::Value(b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
 
             (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
-                join_rel_op(*opa, a, *opb, b, construct)
+                join_rel_op((*opa, a), (*opb, b), construct)
             }
 
             (_, _) => Self::Disjunction(vec![construct(lhs).into(), construct(rhs).into()]),
@@ -161,23 +163,21 @@ impl Value {
     }
 
     fn meet_rel_op_str<T: Eq + Clone>(
-        opa: RelOp,
-        a: &T,
-        opb: RelOp,
-        b: &T,
+        a: (RelOp, &T),
+        b: (RelOp, &T),
         construct: fn(Basic<RelOp, T>) -> Self,
     ) -> Self {
         #[rustfmt::skip]
-        match (opa, opb) {
-            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Basic::Value(a.clone())),
-            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Basic::Value(a.clone())),
+        match (a, b) {
+            ((RelOp::GreaterEqual, a), (RelOp::LessEqual, b)) if a == b => construct(Basic::Value(a.clone())),
+            ((RelOp::LessEqual, a), (RelOp::GreaterEqual, b)) if a == b => construct(Basic::Value(a.clone())),
 
-            (RelOp::Match, RelOp::NotMatch)         if a == b => Self::Bottom,
-            (RelOp::NotMatch, RelOp::Match)         if a == b => Self::Bottom,
+            ((RelOp::Match, a), (RelOp::NotMatch, b))         if a == b => Self::Bottom,
+            ((RelOp::NotMatch, a), (RelOp::Match, b))         if a == b => Self::Bottom,
 
             // ...
 
-            _ => Value::Conjunction(vec![
+            ((opa, a), (opb, b)) => Value::Conjunction(vec![
                 construct(Basic::Relation(opa, a.clone())).into(),
                 construct(Basic::Relation(opb, b.clone())).into()
             ]),
@@ -185,12 +185,12 @@ impl Value {
     }
 
     fn meet_rel_op_ord<T: PartialEq + PartialOrd + Copy>(
-        opa: RelOp,
-        a: &T,
-        opb: RelOp,
-        b: &T,
+        a: (RelOp, &T),
+        b: (RelOp, &T),
         construct: fn(Basic<RelOp, T>) -> Self,
     ) -> Self {
+        let (opa, a) = a;
+        let (opb, b) = b;
         // TODO: could this be implemented by applying rel_op_ord in some clever way?
         #[rustfmt::skip]
         match (opa, opb) {
@@ -246,12 +246,12 @@ impl Value {
     }
 
     fn join_rel_op_str<T: Eq + Clone>(
-        opa: RelOp,
-        a: &T,
-        opb: RelOp,
-        b: &T,
+        a: (RelOp, &T),
+        b: (RelOp, &T),
         construct: fn(Basic<RelOp, T>) -> Self,
     ) -> Self {
+        let (opa, a) = a;
+        let (opb, b) = b;
         #[rustfmt::skip]
         match (opa, opb) {
             (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Basic::Type),
@@ -269,64 +269,53 @@ impl Value {
     }
 
     fn join_rel_op_ord<T: PartialEq + PartialOrd + Copy>(
-        opa: RelOp,
-        a: &T,
-        opb: RelOp,
-        b: &T,
+        a: (RelOp, &T),
+        b: (RelOp, &T),
         construct: fn(Basic<RelOp, T>) -> Self,
     ) -> Self {
-        // TODO: could this be implemented by applying rel_op_ord in some clever way?
-        #[rustfmt::skip]
-        match (opa, opb) {
-            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Basic::Type),
-            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Basic::Type),
-
-
-            (RelOp::GreaterThan, RelOp::GreaterThan)  if a >= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::GreaterThan, RelOp::GreaterThan)  if a <  b => construct(Basic::Relation(opa, *a)),
-            (RelOp::GreaterThan, RelOp::GreaterEqual) if a >= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::GreaterThan, RelOp::GreaterEqual) if a <  b => construct(Basic::Relation(opa, *a)),
-            (RelOp::GreaterThan, RelOp::LessThan)     if a >= b => construct(Basic::Type),
-            (RelOp::GreaterThan, RelOp::LessEqual)    if a >= b => construct(Basic::Type),
-            (RelOp::GreaterThan, RelOp::NotEqual)     if a <= b => construct(Basic::Relation(opb, *b)),
-
-            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a >= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a <  b => construct(Basic::Relation(opa, *a)),
-            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a >  b => construct(Basic::Relation(opb, *b)),
-            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a <= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::GreaterEqual, RelOp::LessEqual)    if a >= b => construct(Basic::Type),
-            (RelOp::GreaterEqual, RelOp::LessThan)     if a >= b => construct(Basic::Type),
-            (RelOp::GreaterEqual, RelOp::NotEqual)     if a <  b => construct(Basic::Relation(opb, *b)),
-
-
-            (RelOp::LessThan, RelOp::LessThan)     if a <= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::LessThan, RelOp::LessThan)     if a >  b => construct(Basic::Relation(opa, *a)),
-            (RelOp::LessThan, RelOp::LessEqual)    if a <= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::LessThan, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opa, *a)),
-            (RelOp::LessThan, RelOp::GreaterThan)  if a <= b => construct(Basic::Type),
-            (RelOp::LessThan, RelOp::GreaterEqual) if a <= b => construct(Basic::Type),
-            (RelOp::LessThan, RelOp::NotEqual)     if a >= b => construct(Basic::Relation(opb, *b)),
-
-            (RelOp::LessEqual, RelOp::LessEqual)    if a <= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::LessEqual, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opa, *a)),
-            (RelOp::LessEqual, RelOp::LessThan)     if a <  b => construct(Basic::Relation(opb, *b)),
-            (RelOp::LessEqual, RelOp::LessThan)     if a >= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::LessEqual, RelOp::GreaterThan)  if a <= b => construct(Basic::Type),
-            (RelOp::LessEqual, RelOp::GreaterEqual) if a <= b => construct(Basic::Type),
-            (RelOp::LessEqual, RelOp::NotEqual)     if a >  b => construct(Basic::Relation(opb, *b)),
-
-
-            (RelOp::NotEqual, RelOp::NotEqual)     if a == b => construct(Basic::Relation(opa, *a)),
-            (RelOp::NotEqual, RelOp::GreaterThan)  if a <= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::NotEqual, RelOp::GreaterEqual) if a <  b => construct(Basic::Relation(opa, *a)),
-            (RelOp::NotEqual, RelOp::LessThan)     if a >= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::NotEqual, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opa, *a)),
-
-            _ => Value::Disjunction(vec![
-                construct(Basic::Relation(opa, *a)).into(),
-                construct(Basic::Relation(opb, *b)).into()
-            ]),
+        macro_rules! rel_op {
+            (>)  => {  RelOp::GreaterThan };
+            (>=) => {  RelOp::GreaterEqual };
+            (<)  => {  RelOp::LessThan };
+            (<=) => {  RelOp::LessEqual };
+            (!=) => {  RelOp::NotEqual };
         }
+
+        macro_rules! val {
+            ($construct:ident, typ) => {  $construct(Basic::Type) };
+            ($construct:ident, $op:tt $a:ident) => {  $construct(Basic::Relation(rel_op!($op), *$a)) };
+        }
+
+        macro_rules! match_ord_ops {
+            ($ainput:ident, $binput:ident, $construct:ident, {
+                $(
+                    ( ($opa:tt $a:ident) $_:tt ($opb:tt $b:ident) ) $( if $guard:expr )? => ( $($res:tt)+ ),
+                )+
+            }) => {
+                match ($ainput, $binput) {
+                    $(
+                        ((rel_op!($opa), $a), (rel_op!($opb), $b)) $( if $guard )? => { val!($construct, $($res)+) }
+                        ((rel_op!($opb), $b), (rel_op!($opa), $a)) $( if $guard )? => { val!($construct, $($res)+) }
+                    ),+
+                    ((opa, a), (opb, b)) => Value::Disjunction(vec![
+                        construct(Basic::Relation(opa, *a)).into(),
+                        construct(Basic::Relation(opb, *b)).into()
+                    ])
+                }
+            }
+        }
+
+        match_ord_ops!(a, b, construct, {
+            ((>=a) | (> b)) if a <= b => (>=a),
+            ((>=a) | (> b)) if a >  b => (> b),
+            ((>=a) | (<=b)) if a == b => (typ),
+            ((> a) | (< b)) if a == b => (!=a),
+            ((> a) | (< b)) if a <  b => (typ),
+            ((> a) | (<=b)) if a <= b => (typ),
+            ((> a) | (> b)) if a <  b => (> a),
+            ((> a) | (!=b)) if a >= b => (!=b),
+            ((> a) | (!=b)) if a <  b => (typ),
+        })
     }
 
     fn rel_op_str(lhs: &str, op: RelOp, rhs: &str) -> bool {
@@ -426,38 +415,6 @@ impl Value {
             Self::Bottom => None,
             other => Some(other),
         }
-    }
-}
-
-trait ToValue {
-    fn to_value(self) -> Value;
-    fn to_value_relation(self, op: RelOp) -> Value;
-}
-
-impl ToValue for i64 {
-    fn to_value(self) -> Value {
-        Value::Int(Basic::Value(self))
-    }
-    fn to_value_relation(self, op: RelOp) -> Value {
-        Value::Int(Basic::Relation(op, self))
-    }
-}
-
-impl ToValue for f64 {
-    fn to_value(self) -> Value {
-        Value::Float(Basic::Value(self))
-    }
-    fn to_value_relation(self, op: RelOp) -> Value {
-        Value::Float(Basic::Relation(op, self))
-    }
-}
-
-impl ToValue for &str {
-    fn to_value(self) -> Value {
-        Value::String(Basic::Value(Rc::from(self)))
-    }
-    fn to_value_relation(self, op: RelOp) -> Value {
-        Value::String(Basic::Relation(op, Rc::from(self)))
     }
 }
 
@@ -820,4 +777,36 @@ fn test_disjunct_infimum() {
     assert_cue!(((string) | (int) | (bool)) & (2) == (2));
     assert_cue!(((string) | (int) | (bool)) & ((2) | (true)) == ((2) | (true)));
     assert_cue!(((string) | (2) | (bool)) & ((int) | (true)) == ((2) | (true)));
+}
+
+trait ToValue {
+    fn to_value(self) -> Value;
+    fn to_value_relation(self, op: RelOp) -> Value;
+}
+
+impl ToValue for i64 {
+    fn to_value(self) -> Value {
+        Value::Int(Basic::Value(self))
+    }
+    fn to_value_relation(self, op: RelOp) -> Value {
+        Value::Int(Basic::Relation(op, self))
+    }
+}
+
+impl ToValue for f64 {
+    fn to_value(self) -> Value {
+        Value::Float(Basic::Value(self))
+    }
+    fn to_value_relation(self, op: RelOp) -> Value {
+        Value::Float(Basic::Relation(op, self))
+    }
+}
+
+impl ToValue for &str {
+    fn to_value(self) -> Value {
+        Value::String(Basic::Value(Rc::from(self)))
+    }
+    fn to_value_relation(self, op: RelOp) -> Value {
+        Value::String(Basic::Relation(op, Rc::from(self)))
+    }
 }
