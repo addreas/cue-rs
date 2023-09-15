@@ -3,6 +3,8 @@ use std::{fmt::Debug, rc::Rc};
 use regex::Regex;
 
 use super::op::RelOp;
+use crate::{match_rel_ops, assert_cue};
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
@@ -189,60 +191,22 @@ impl Value {
         b: (RelOp, &T),
         construct: fn(Basic<RelOp, T>) -> Self,
     ) -> Self {
-        let (opa, a) = a;
-        let (opb, b) = b;
-        // TODO: could this be implemented by applying rel_op_ord in some clever way?
-        #[rustfmt::skip]
-        match (opa, opb) {
-            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Basic::Value(*a)),
-            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Basic::Value(*a)),
-
-
-            (RelOp::GreaterThan, RelOp::GreaterThan)  if a >= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::GreaterThan, RelOp::GreaterThan)  if a <  b => construct(Basic::Relation(opb, *b)),
-            (RelOp::GreaterThan, RelOp::GreaterEqual) if a >= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::GreaterThan, RelOp::GreaterEqual) if a <  b => construct(Basic::Relation(opb, *b)),
-            (RelOp::GreaterThan, RelOp::LessThan)     if a >= b => Self::Bottom,
-            (RelOp::GreaterThan, RelOp::LessEqual)    if a >= b => Self::Bottom,
-            (RelOp::GreaterThan, RelOp::NotEqual)     if a <= b => construct(Basic::Relation(opa, *a)),
-
-            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a >= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::GreaterEqual, RelOp::GreaterEqual) if a <  b => construct(Basic::Relation(opb, *b)),
-            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a >  b => construct(Basic::Relation(opa, *a)),
-            (RelOp::GreaterEqual, RelOp::GreaterThan)  if a <= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::GreaterEqual, RelOp::LessEqual)    if a >= b => Self::Bottom,
-            (RelOp::GreaterEqual, RelOp::LessThan)     if a >= b => Self::Bottom,
-            (RelOp::GreaterEqual, RelOp::NotEqual)     if a <  b => construct(Basic::Relation(opa, *a)),
-
-
-            (RelOp::LessThan, RelOp::LessThan)     if a <= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::LessThan, RelOp::LessThan)     if a >  b => construct(Basic::Relation(opb, *b)),
-            (RelOp::LessThan, RelOp::LessEqual)    if a <= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::LessThan, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opb, *b)),
-            (RelOp::LessThan, RelOp::GreaterThan)  if a <= b => Self::Bottom,
-            (RelOp::LessThan, RelOp::GreaterEqual) if a <= b => Self::Bottom,
-            (RelOp::LessThan, RelOp::NotEqual)     if a >= b => construct(Basic::Relation(opa, *a)),
-
-            (RelOp::LessEqual, RelOp::LessEqual)    if a <= b => construct(Basic::Relation(opa, *a)),
-            (RelOp::LessEqual, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opb, *b)),
-            (RelOp::LessEqual, RelOp::LessThan)     if a <  b => construct(Basic::Relation(opa, *a)),
-            (RelOp::LessEqual, RelOp::LessThan)     if a >= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::LessEqual, RelOp::GreaterThan)  if a <= b => Self::Bottom,
-            (RelOp::LessEqual, RelOp::GreaterEqual) if a <= b => Self::Bottom,
-            (RelOp::LessEqual, RelOp::NotEqual)     if a >  b => construct(Basic::Relation(opa, *a)),
-
-
-            (RelOp::NotEqual, RelOp::NotEqual)     if a == b => construct(Basic::Relation(opb, *b)),
-            (RelOp::NotEqual, RelOp::GreaterThan)  if a <= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::NotEqual, RelOp::GreaterEqual) if a <  b => construct(Basic::Relation(opb, *b)),
-            (RelOp::NotEqual, RelOp::LessThan)     if a >= b => construct(Basic::Relation(opb, *b)),
-            (RelOp::NotEqual, RelOp::LessEqual)    if a >  b => construct(Basic::Relation(opb, *b)),
-
-            _ => Value::Conjunction(vec![
-                construct(Basic::Relation(opa, *a)).into(),
-                construct(Basic::Relation(opb, *b)).into()
-            ]),
-        }
+        match_rel_ops!(a, b, construct, Value::Conjunction, {
+            ((>=a) & (>=b)) if a <= b => (>=b) else => (>=a),
+            ((>=a) & (<=b)) if a == b => (a) else if b < a => (bot),
+            ((>=a) & (!=b)) if a >  b => (>=a) else if a == b => (>a),
+            ((>=a) & (> b)) if a <= b => (> b) else => (>=a),
+            ((>=a) & (< b)) if a >= b => (bot),
+            ((> a) & (> b)) if a <  b => (> b),
+            ((> a) & (< b)) if a >= b => (bot),
+            ((> a) & (<=b)) if a >= b => (bot),
+            ((> a) & (!=b)) if a >= b => (> a),
+            ((< a) & (< b)) if a >  b => (< b) else => (< a),
+            ((< a) & (<=b)) if a >  b => (<=b) else => (< a),
+            ((< a) & (!=b)) if a <= b => (< a),
+            ((<=a) & (<=b)) if a >  b => (<=b) else => (<=a),
+            ((<=a) & (!=b)) if a <  b => (<=a) else if a == b => (<a),
+        })
     }
 
     fn join_rel_op_str<T: Eq + Clone>(
@@ -250,22 +214,10 @@ impl Value {
         b: (RelOp, &T),
         construct: fn(Basic<RelOp, T>) -> Self,
     ) -> Self {
-        let (opa, a) = a;
-        let (opb, b) = b;
-        #[rustfmt::skip]
-        match (opa, opb) {
-            (RelOp::GreaterEqual, RelOp::LessEqual) if a == b => construct(Basic::Type),
-            (RelOp::LessEqual, RelOp::GreaterEqual) if a == b => construct(Basic::Type),
-
-            (RelOp::Match, RelOp::NotMatch)         if a == b => construct(Basic::Type),
-            (RelOp::NotMatch, RelOp::Match)         if a == b => construct(Basic::Type),
-            // ...
-
-            _ => Value::Disjunction(vec![
-                construct(Basic::Relation(opa, a.clone())).into(),
-                construct(Basic::Relation(opb, b.clone())).into()
-            ]),
-        }
+        match_rel_ops!(a, b, construct, Value::Disjunction, {
+            ((>=a) | (<=b)) if a == b => (typ),
+            ((match a) | (notmatch b)) if a == b => (typ),
+        })
     }
 
     fn join_rel_op_ord<T: PartialEq + PartialOrd + Copy>(
@@ -273,66 +225,17 @@ impl Value {
         b: (RelOp, &T),
         construct: fn(Basic<RelOp, T>) -> Self,
     ) -> Self {
-        macro_rules! rel_op {
-            (>)  => {  RelOp::GreaterThan };
-            (>=) => {  RelOp::GreaterEqual };
-            (<)  => {  RelOp::LessThan };
-            (<=) => {  RelOp::LessEqual };
-            (!=) => {  RelOp::NotEqual };
-        }
-
-        macro_rules! val {
-            ($construct:ident, typ) => {  $construct(Basic::Type) };
-            ($construct:ident, $op:tt $a:ident) => {  $construct(Basic::Relation(rel_op!($op), *$a)) };
-        }
-
-        macro_rules! match_ord_ops {
-            ($ainput:ident, $binput:ident, $construct:ident, {
-                $(
-                    (
-                        ($opa:tt $a:ident)
-                        $_:tt
-                        ($opb:tt $b:ident)
-                    )
-                    if $guard:expr
-                    =>
-                    ( $($res:tt)+ )
-                    $( else if $elif:expr => ( $($elifres:tt)+ ) )*
-                    $( else => ( $($elres:tt)+ ) )?,
-                )+
-            }) => {
-                match ($ainput, $binput) {
-                    $(
-                        ((rel_op!($opa), $a), (rel_op!($opb), $b)) if $guard => { val!($construct, $($res)+) }
-                        ((rel_op!($opb), $b), (rel_op!($opa), $a)) if $guard => { val!($construct, $($res)+) }
-                        $(
-                            ((rel_op!($opa), $a), (rel_op!($opb), $b)) if $elif => { val!($construct, $($elifres)+) }
-                            ((rel_op!($opb), $b), (rel_op!($opa), $a)) if $elif => { val!($construct, $($elifres)+) }
-                        )*
-                        $(
-                            ((rel_op!($opa), $a), (rel_op!($opb), $b)) if !$guard => { val!($construct, $($elres)+) }
-                            ((rel_op!($opb), $b), (rel_op!($opa), $a)) if !$guard => { val!($construct, $($elres)+) }
-                        )?
-                    ),+
-                    ((opa, a), (opb, b)) => Value::Disjunction(vec![
-                        construct(Basic::Relation(opa, *a)).into(),
-                        construct(Basic::Relation(opb, *b)).into()
-                    ])
-                }
-            }
-        }
-
-        match_ord_ops!(a, b, construct, {
-            ((>=a) | (> b)) if a <= b => (>=a) else => (> b),
-            ((>=a) | (< b)) if a <= b => (typ),
+        match_rel_ops!(a, b, construct, Value::Disjunction, {
             ((>=a) | (>=b)) if a <= b => (>=a) else => (>=b),
             ((>=a) | (<=b)) if a <= b => (typ),
             ((>=a) | (!=b)) if a <= b => (typ) else => (!=b),
-            ((> a) | (< b)) if a == b => (!=a) else if a < b => (typ),
+            ((>=a) | (> b)) if a <= b => (>=a) else => (> b),
+            ((>=a) | (< b)) if a <= b => (typ),
             ((> a) | (> b)) if a <  b => (> a),
+            ((> a) | (< b)) if a == b => (!=a) else if a < b => (typ),
             ((> a) | (<=b)) if a <= b => (typ),
             ((> a) | (!=b)) if a <  b => (typ) else => (!=b),
-            ((< a) | (< b)) if a >  b => (< a),
+            ((< a) | (< b)) if a >  b => (< a) else => (< b),
             ((< a) | (<=b)) if a >  b => (< a) else => (<=b),
             ((< a) | (!=b)) if a <= b => (!=b) else => (typ),
             ((<=a) | (<=b)) if a >  b => (<=a) else => (<=b),
@@ -440,83 +343,6 @@ impl Value {
     }
 }
 
-#[allow(unused_macros)]
-macro_rules! cue_val {
-    (_) => { Value::Top };
-    (_|_) => { Value::Bottom };
-
-    (null) => { Value::Null };
-    (bool) => { Value::Bool(None) };
-    (int) => { Value::Int(Basic::Type) };
-    (float) => { Value::Float(Basic::Type) };
-    (bytes) => { Value::Bytes(Basic::Type) };
-    (string) => { Value::String(Basic::Type) };
-
-    (true) => { Value::Bool(Some(true)) };
-    (false) => { Value::Bool(Some(false)) };
-    ($a:literal) => { $a.to_value() };
-
-    (>  $a:literal) => { $a.to_value_relation(RelOp::GreaterThan) };
-    (>= $a:literal) => { $a.to_value_relation(RelOp::GreaterEqual) };
-    (<  $a:literal) => { $a.to_value_relation(RelOp::LessThan) };
-    (<= $a:literal) => { $a.to_value_relation(RelOp::LessEqual) };
-    (!= $a:literal) => { $a.to_value_relation(RelOp::NotEqual) };
-
-    (=~ $a:literal) => { $a.to_value_relation(RelOp::Match) };
-    (!~ $a:literal) => { $a.to_value_relation(RelOp::NotMatch) };
-
-    ( $(($($a:tt)+))&+ ) => { Value::Conjunction(vec![$( cue_val!($($a)+).into() ),+ ]) };
-    ( $(($($a:tt)+))|+ ) => { Value::Disjunction(vec![$( cue_val!($($a)+).into() ),+ ]) };
-
-    ({ $($k:ident: ($($v:tt)+)),* }) => {
-        Value::Struct(vec![
-            $(Field {
-                label: stringify!($k).into(),
-                optional: false,
-                definition: false,
-                hidden: false,
-                value: cue_val!($($v)+).into(),
-            }),*
-        ])
-    };
-
-    ([ $( ($($v:tt)+) ),* ]) => {
-        Value::List(vec![
-            $( cue_val!($($v)+).into() ),*
-        ])
-    };
-}
-
-#[allow(unused_macros)]
-macro_rules! assert_cue {
-    (($($a:tt)+) & ($($b:tt)+) == ($($c:tt)+)) => {
-        let a = Rc::from(cue_val!($($a)+));
-        let b = Rc::from(cue_val!($($b)+));
-        let c = Rc::from(cue_val!($($c)+));
-        assert_eq!(
-            a.meet(b),
-            c,
-            "expect that ({}) & ({}) == ({})",
-            stringify!($($a)+),
-            stringify!($($b)+),
-            stringify!($($c)+),
-        )
-    };
-
-    (($($a:tt)+) | ($($b:tt)+) == ($($c:tt)+)) => {
-        let a = Rc::from(cue_val!($($a)+));
-        let b = Rc::from(cue_val!($($b)+));
-        let c = Rc::from(cue_val!($($c)+));
-        assert_eq!(
-            a.join(b),
-            c,
-            "expect that ({}) | ({}) == ({})",
-            stringify!($($a)+),
-            stringify!($($b)+),
-            stringify!($($c)+),
-        )
-    };
-}
 #[test]
 fn test_basic_meets() {
     assert_cue!((_) & (_ | _) == (_ | _));
@@ -525,6 +351,7 @@ fn test_basic_meets() {
     assert_cue!((_) & (true) == (true));
     assert_cue!((bool) & (true) == (true));
 }
+
 #[test]
 fn test_int_infimum() {
     assert_cue!((int) & (int) == (int));
@@ -559,9 +386,9 @@ fn test_int_infimum() {
     assert_cue!((>10) & (>=10) == (>10));
     assert_cue!((>10) & (>=100) == (>=100));
 
-    assert_cue!((>10) & (!=1) == ((>10) & (!=1)));
+    assert_cue!((>10) & (!=1) == (>10));
     assert_cue!((>10) & (!=10) == (>10));
-    assert_cue!((>10) & (!=100) == (>10));
+    assert_cue!((>10) & (!=100) == ((>10) & (!=100)));
 
     assert_cue!((>10) & (<1) == (_|_));
     assert_cue!((>10) & (<10) == (_|_));
@@ -579,9 +406,9 @@ fn test_int_infimum() {
     assert_cue!((>=10) & (>10) == (>10));
     assert_cue!((>=10) & (>100) == (>100));
 
-    assert_cue!((>=10) & (!=1) == ((>=10) & (!=1)));
-    assert_cue!((>=10) & (!=10) == ((>=10) & (!=10)));
-    assert_cue!((>=10) & (!=100) == (>=10));
+    assert_cue!((>=10) & (!=1) == (>=10));
+    assert_cue!((>=10) & (!=10) == (>10));
+    assert_cue!((>=10) & (!=100) == ((>=10) & (!=100)));
 
     assert_cue!((>=10) & (<1) == (_|_));
     assert_cue!((>=10) & (<10) == (_|_));
@@ -599,9 +426,9 @@ fn test_int_infimum() {
     assert_cue!((<10) & (<=10) == (<10));
     assert_cue!((<10) & (<=100) == (<10));
 
-    assert_cue!((<10) & (!=1) == (<10));
+    assert_cue!((<10) & (!=1) == ((<10) & (!=1)));
     assert_cue!((<10) & (!=10) == (<10));
-    assert_cue!((<10) & (!=100) == ((<10) & (!=100)));
+    assert_cue!((<10) & (!=100) == (<10));
 
     assert_cue!((<10) & (>1) == ((<10) & (>1)));
     assert_cue!((<10) & (>10) == (_|_));
@@ -619,9 +446,9 @@ fn test_int_infimum() {
     assert_cue!((<=10) & (<10) == (<10));
     assert_cue!((<=10) & (<100) == (<=10));
 
-    assert_cue!((<=10) & (!=1) == (<=10));
-    assert_cue!((<=10) & (!=10) == ((<=10) & (!=10)));
-    assert_cue!((<=10) & (!=100) == ((<=10) & (!=100)));
+    assert_cue!((<=10) & (!=1) == ((<=10) & (!=1)));
+    assert_cue!((<=10) & (!=10) == (<10));
+    assert_cue!((<=10) & (!=100) == (<=10));
 
     assert_cue!((<=10) & (>1) == ((<=10) & (>1)));
     assert_cue!((<=10) & (>10) == (_|_));
@@ -636,7 +463,7 @@ fn test_int_infimum() {
     assert_cue!((!=10) & (>100) == (>100));
 
     assert_cue!((!=10) & (>=1) == ((!=10) & (>=1)));
-    assert_cue!((!=10) & (>=10) == ((!=10) & (>=10)));
+    assert_cue!((!=10) & (>=10) == (>10));
     assert_cue!((!=10) & (>=100) == (>=100));
 
     assert_cue!((!=10) & (<1) == (<1));
@@ -644,7 +471,7 @@ fn test_int_infimum() {
     assert_cue!((!=10) & (<100) == ((!=10) & (<100)));
 
     assert_cue!((!=10) & (<=1) == (<=1));
-    assert_cue!((!=10) & (<=10) == ((!=10) & (<=10)));
+    assert_cue!((!=10) & (<=10) == (<10));
     assert_cue!((!=10) & (<=100) == ((!=10) & (<=100)));
 }
 
