@@ -112,12 +112,12 @@ impl Value {
         }
     }
 
-    fn meet_basic<Op: Copy, T: PartialEq>(
-        lhs: Basic<Op, T>,
-        rhs: Basic<Op, T>,
-        construct: fn(Basic<Op, T>) -> Self,
-        rel_op: fn(&T, Op, &T) -> bool,
-        meet_rel_op: fn((Op, &T), (Op, &T), fn(Basic<Op, T>) -> Self) -> Self,
+    fn meet_basic<T: PartialEq>(
+        lhs: Basic<RelOp, T>,
+        rhs: Basic<RelOp, T>,
+        construct: fn(Basic<RelOp, T>) -> Self,
+        rel_op: fn(&T, RelOp, &T) -> bool,
+        meet_rel_op: fn((RelOp, &T), (RelOp, &T), fn(Basic<RelOp, T>) -> Self) -> Self,
     ) -> Self {
         match (&lhs, &rhs) {
             (Basic::Type, _) => construct(rhs),
@@ -289,13 +289,30 @@ impl Value {
         macro_rules! match_ord_ops {
             ($ainput:ident, $binput:ident, $construct:ident, {
                 $(
-                    ( ($opa:tt $a:ident) $_:tt ($opb:tt $b:ident) ) $( if $guard:expr )? => ( $($res:tt)+ ),
+                    (
+                        ($opa:tt $a:ident)
+                        $_:tt
+                        ($opb:tt $b:ident)
+                    )
+                    if $guard:expr
+                    =>
+                    ( $($res:tt)+ )
+                    $( else if $elif:expr => ( $($elifres:tt)+ ) )*
+                    $( else => ( $($elres:tt)+ ) )?,
                 )+
             }) => {
                 match ($ainput, $binput) {
                     $(
-                        ((rel_op!($opa), $a), (rel_op!($opb), $b)) $( if $guard )? => { val!($construct, $($res)+) }
-                        ((rel_op!($opb), $b), (rel_op!($opa), $a)) $( if $guard )? => { val!($construct, $($res)+) }
+                        ((rel_op!($opa), $a), (rel_op!($opb), $b)) if $guard => { val!($construct, $($res)+) }
+                        ((rel_op!($opb), $b), (rel_op!($opa), $a)) if $guard => { val!($construct, $($res)+) }
+                        $(
+                            ((rel_op!($opa), $a), (rel_op!($opb), $b)) if $elif => { val!($construct, $($elifres)+) }
+                            ((rel_op!($opb), $b), (rel_op!($opa), $a)) if $elif => { val!($construct, $($elifres)+) }
+                        )*
+                        $(
+                            ((rel_op!($opa), $a), (rel_op!($opb), $b)) if !$guard => { val!($construct, $($elres)+) }
+                            ((rel_op!($opb), $b), (rel_op!($opa), $a)) if !$guard => { val!($construct, $($elres)+) }
+                        )?
                     ),+
                     ((opa, a), (opb, b)) => Value::Disjunction(vec![
                         construct(Basic::Relation(opa, *a)).into(),
@@ -306,15 +323,20 @@ impl Value {
         }
 
         match_ord_ops!(a, b, construct, {
-            ((>=a) | (> b)) if a <= b => (>=a),
-            ((>=a) | (> b)) if a >  b => (> b),
-            ((>=a) | (<=b)) if a == b => (typ),
-            ((> a) | (< b)) if a == b => (!=a),
-            ((> a) | (< b)) if a <  b => (typ),
-            ((> a) | (<=b)) if a <= b => (typ),
+            ((>=a) | (> b)) if a <= b => (>=a) else => (> b),
+            ((>=a) | (< b)) if a <= b => (typ),
+            ((>=a) | (>=b)) if a <= b => (>=a) else => (>=b),
+            ((>=a) | (<=b)) if a <= b => (typ),
+            ((>=a) | (!=b)) if a <= b => (typ) else => (!=b),
+            ((> a) | (< b)) if a == b => (!=a) else if a < b => (typ),
             ((> a) | (> b)) if a <  b => (> a),
-            ((> a) | (!=b)) if a >= b => (!=b),
-            ((> a) | (!=b)) if a <  b => (typ),
+            ((> a) | (<=b)) if a <= b => (typ),
+            ((> a) | (!=b)) if a <  b => (typ) else => (!=b),
+            ((< a) | (< b)) if a >  b => (< a),
+            ((< a) | (<=b)) if a >  b => (< a) else => (<=b),
+            ((< a) | (!=b)) if a <= b => (!=b) else => (typ),
+            ((<=a) | (<=b)) if a >  b => (<=a) else => (<=b),
+            ((<=a) | (!=b)) if a <  b => (!=b) else => (typ),
         })
     }
 
@@ -734,17 +756,17 @@ fn test_int_supremum() {
 
     assert_cue!((!=10) | (>1) == (int));
     assert_cue!((!=10) | (>10) == (!=10));
-    assert_cue!((!=10) | (>100) == ((!=10) | (>100)));
+    assert_cue!((!=10) | (>100) == (!=10));
 
     assert_cue!((!=10) | (>=1) == (int));
     assert_cue!((!=10) | (>=10) == (int));
-    assert_cue!((!=10) | (>=100) == ((!=10) | (>=100)));
+    assert_cue!((!=10) | (>=100) == (!=10));
 
-    assert_cue!((!=10) | (<1) == ((!=10) | (<1)));
+    assert_cue!((!=10) | (<1) == (!=10));
     assert_cue!((!=10) | (<10) == (!=10));
     assert_cue!((!=10) | (<100) == (int));
 
-    assert_cue!((!=10) | (<=1) == ((!=10) | (<=1)));
+    assert_cue!((!=10) | (<=1) == (!=10));
     assert_cue!((!=10) | (<=10) == (int));
     assert_cue!((!=10) | (<=100) == (int));
 }
