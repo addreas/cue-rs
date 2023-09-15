@@ -20,7 +20,7 @@ macro_rules! rel_op {
 macro_rules! val {
     ($construct:ident, typ) => { $construct(Basic::Type) };
     ($construct:ident, bot) => { Value::Bottom };
-    ($construct:ident, $a:ident) => { $construct(Basic::Value(*$a)) };
+    ($construct:ident, $a:ident) => { $construct(Basic::Value($a.clone())) };
     ($construct:ident, $op:tt $a:ident) => { $construct(Basic::Relation(crate::rel_op!($op), *$a)) };
 }
 

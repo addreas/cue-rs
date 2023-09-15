@@ -169,21 +169,10 @@ impl Value {
         b: (RelOp, &T),
         construct: fn(Basic<RelOp, T>) -> Self,
     ) -> Self {
-        #[rustfmt::skip]
-        match (a, b) {
-            ((RelOp::GreaterEqual, a), (RelOp::LessEqual, b)) if a == b => construct(Basic::Value(a.clone())),
-            ((RelOp::LessEqual, a), (RelOp::GreaterEqual, b)) if a == b => construct(Basic::Value(a.clone())),
-
-            ((RelOp::Match, a), (RelOp::NotMatch, b))         if a == b => Self::Bottom,
-            ((RelOp::NotMatch, a), (RelOp::Match, b))         if a == b => Self::Bottom,
-
-            // ...
-
-            ((opa, a), (opb, b)) => Value::Conjunction(vec![
-                construct(Basic::Relation(opa, a.clone())).into(),
-                construct(Basic::Relation(opb, b.clone())).into()
-            ]),
-        }
+        match_rel_ops!(a, b, construct, Value::Conjunction, {
+            ((>=a) | (<=b)) if a == b => (a),
+            ((match a) | (notmatch b)) if a == b => (bot),
+        })
     }
 
     fn meet_rel_op_ord<T: PartialEq + PartialOrd + Copy>(
