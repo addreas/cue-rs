@@ -1,4 +1,4 @@
-use std::{fmt::Debug, rc::Rc};
+use std::{fmt::Debug, fmt::Display, rc::Rc};
 
 use regex::Regex;
 
@@ -16,11 +16,11 @@ pub enum Value {
     Struct(Vec<Field>),
     List(Vec<Rc<Value>>),
 
-    String(Basic<RelOp, Rc<str>>),
-    Bytes(Basic<RelOp, Rc<str>>),
+    String(Basic<Rc<str>>),
+    Bytes(Basic<Rc<str>>),
 
-    Float(Basic<RelOp, f64>),
-    Int(Basic<RelOp, i64>),
+    Float(Basic<f64>),
+    Int(Basic<i64>),
 
     Bool(Option<bool>),
 
@@ -29,11 +29,65 @@ pub enum Value {
     Bottom,
 }
 
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        macro_rules! write_list {
+            ($items:ident, $sep:literal) => { write_list!($items, "", $sep, "") };
+            ($items:ident, $start:literal, $sep:literal, $end: literal) => {
+                {
+                    if let Some((last, items)) = $items.split_last() {
+                        write!(f, "{}", $start)
+                        .and_then(|_| {
+                            items.iter()
+                            .fold(Ok(()), |acc, item| {
+                                acc
+                                .and_then(|_| Display::fmt(item, f))
+                                .and_then(|_| write!(f, "{}", $sep))
+                            })
+                        .and_then(|_| Display::fmt(last, f))
+                        .and_then(|_| write!(f, "{}", $end))
+                        })
+
+                    } else {
+                        Err(std::fmt::Error)
+                    }
+                }
+            };
+        }
+        match self {
+            Value::Top => write!(f, "_"),
+            Value::Disjunction(items) => write_list!(items, " | "),
+            Value::Conjunction(items) => write_list!(items, " & "),
+            Value::Struct(items) => write_list!(items, "{", ",\n", "}"),
+            Value::List(items) => write_list!(items, "[", ",\n", "]"),
+            Value::String(val) => Display::fmt(val, f),
+            Value::Bytes(val) => Display::fmt(val, f),
+            Value::Float(val) => Display::fmt(val, f),
+            Value::Int(val) => Display::fmt(val, f),
+            Value::Bool(None) => write!(f, "bool"),
+            Value::Bool(Some(true)) => write!(f, "true"),
+            Value::Bool(Some(false)) => write!(f, "false"),
+            Value::Null => write!(f, "null"),
+            Value::Bottom => write!(f, "_|_"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
-pub enum Basic<Op, T> {
+pub enum Basic<T> {
     Type,
-    Relation(Op, T),
+    Relation(RelOp, T),
     Value(T),
+}
+
+impl<T: Display> Display for Basic<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Type => write!(f, ""),
+            Self::Relation(op, val) => write!(f, "{}{}", op, val),
+            Self::Value(val) => write!(f, "{}", val),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -43,6 +97,15 @@ pub struct Field {
     definition: bool,
     hidden: bool,
     value: Rc<Value>,
+}
+
+impl Display for Field {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let definition = if self.definition { "#" } else { "" };
+        let optional = if self.optional { "?" } else { "" };
+        let hidden = if self.hidden { "_" } else { "" };
+        write!(f, "{}{}{}{}: {}", hidden, definition, self.label, optional, self.value)
+    }
 }
 
 impl Value {
@@ -114,12 +177,12 @@ impl Value {
         }
     }
 
-    fn meet_basic<T: PartialEq>(
-        lhs: Basic<RelOp, T>,
-        rhs: Basic<RelOp, T>,
-        construct: fn(Basic<RelOp, T>) -> Self,
+    fn meet_basic<T: PartialEq + Display>(
+        lhs: Basic<T>,
+        rhs: Basic<T>,
+        construct: fn(Basic<T>) -> Self,
         rel_op: fn(&T, RelOp, &T) -> bool,
-        meet_rel_op: fn((RelOp, &T), (RelOp, &T), fn(Basic<RelOp, T>) -> Self) -> Self,
+        meet_rel_op: fn((RelOp, &T), (RelOp, &T), fn(Basic<T>) -> Self) -> Self,
     ) -> Self {
         match (&lhs, &rhs) {
             (Basic::Type, _) => construct(rhs),
@@ -131,7 +194,12 @@ impl Value {
             (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(rhs),
 
             (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
-                meet_rel_op((*opa, a), (*opb, b), construct)
+                let res = meet_rel_op((*opa, a), (*opb, b), construct);
+
+                let rel_op_bools = (rel_op(a, *opa, b), rel_op(a, *opb, b), rel_op(b, *opa, a), rel_op(b, *opb, a));
+                println!("{rel_op_bools:?}: {opa}{a} & {opa}{a} == {res}");
+
+                res
             }
 
             (_, _) => Self::Bottom,
@@ -139,11 +207,11 @@ impl Value {
     }
 
     fn join_basic<T: PartialEq>(
-        lhs: Basic<RelOp, T>,
-        rhs: Basic<RelOp, T>,
-        construct: fn(Basic<RelOp, T>) -> Self,
+        lhs: Basic<T>,
+        rhs: Basic<T>,
+        construct: fn(Basic<T>) -> Self,
         rel_op: fn(&T, RelOp, &T) -> bool,
-        join_rel_op: fn((RelOp, &T), (RelOp, &T), fn(Basic<RelOp, T>) -> Self) -> Self,
+        join_rel_op: fn((RelOp, &T), (RelOp, &T), fn(Basic<T>) -> Self) -> Self,
     ) -> Self {
         match (&lhs, &rhs) {
             (Basic::Type, _) => construct(lhs),
@@ -167,7 +235,7 @@ impl Value {
     fn meet_rel_op_str<T: Eq + Clone>(
         a: (RelOp, &T),
         b: (RelOp, &T),
-        construct: fn(Basic<RelOp, T>) -> Self,
+        construct: fn(Basic<T>) -> Self,
     ) -> Self {
         match_rel_ops!(a, b, construct, Value::Conjunction, {
             ((>=a) | (<=b)) if a == b => (a),
@@ -178,7 +246,7 @@ impl Value {
     fn meet_rel_op_ord<T: PartialEq + PartialOrd + Copy>(
         a: (RelOp, &T),
         b: (RelOp, &T),
-        construct: fn(Basic<RelOp, T>) -> Self,
+        construct: fn(Basic<T>) -> Self,
     ) -> Self {
         match_rel_ops!(a, b, construct, Value::Conjunction, {
             ((>=a) & (>=b)) if a <= b => (>=b) else => (>=a),
@@ -201,7 +269,7 @@ impl Value {
     fn join_rel_op_str<T: Eq + Clone>(
         a: (RelOp, &T),
         b: (RelOp, &T),
-        construct: fn(Basic<RelOp, T>) -> Self,
+        construct: fn(Basic<T>) -> Self,
     ) -> Self {
         match_rel_ops!(a, b, construct, Value::Disjunction, {
             ((>=a) | (<=b)) if a == b => (typ),
@@ -212,7 +280,7 @@ impl Value {
     fn join_rel_op_ord<T: PartialEq + PartialOrd + Copy>(
         a: (RelOp, &T),
         b: (RelOp, &T),
-        construct: fn(Basic<RelOp, T>) -> Self,
+        construct: fn(Basic<T>) -> Self,
     ) -> Self {
         match_rel_ops!(a, b, construct, Value::Disjunction, {
             ((>=a) | (>=b)) if a <= b => (>=a) else => (>=b),
