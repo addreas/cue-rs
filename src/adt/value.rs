@@ -3,7 +3,7 @@ use std::{fmt::Debug, fmt::Display, rc::Rc};
 use regex::Regex;
 
 use super::op::RelOp;
-use crate::{match_rel_ops, assert_cue};
+use crate::{match_basic, assert_cue};
 
 
 #[derive(Debug, PartialEq, Clone)]
@@ -56,18 +56,30 @@ impl Display for Value {
         }
         match self {
             Value::Top => write!(f, "_"),
+
             Value::Disjunction(items) => write_list!(items, " | "),
             Value::Conjunction(items) => write_list!(items, " & "),
+
             Value::Struct(items) => write_list!(items, "{", ",\n", "}"),
+
             Value::List(items) => write_list!(items, "[", ",\n", "]"),
+
+            Value::String(Basic::Type) => write!(f, "string"),
+            Value::Bytes(Basic::Type) => write!(f, "bytes"),
+            Value::Float(Basic::Type) => write!(f, "float"),
+            Value::Int(Basic::Type) => write!(f, "int"),
+
             Value::String(val) => Display::fmt(val, f),
             Value::Bytes(val) => Display::fmt(val, f),
             Value::Float(val) => Display::fmt(val, f),
             Value::Int(val) => Display::fmt(val, f),
+
             Value::Bool(None) => write!(f, "bool"),
             Value::Bool(Some(true)) => write!(f, "true"),
             Value::Bool(Some(false)) => write!(f, "false"),
+
             Value::Null => write!(f, "null"),
+
             Value::Bottom => write!(f, "_|_"),
         }
     }
@@ -127,11 +139,11 @@ impl Value {
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => self,
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bottom.into(),
 
-            (Self::Int(lhs), Self::Int(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Int, Self::rel_op_ord, Self::meet_rel_op_ord).into(),
-            (Self::Float(lhs), Self::Float(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Float, Self::rel_op_ord, Self::meet_rel_op_ord).into(),
+            (Self::Int(lhs), Self::Int(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Int, Self::rel_op_ord).into(),
+            (Self::Float(lhs), Self::Float(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Float, Self::rel_op_ord).into(),
 
-            (Self::String(lhs), Self::String(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::String, |a, op, b| Self::rel_op_str(a, op, b), Self::meet_rel_op_str).into(),
-            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Bytes, |a, op, b| Self::rel_op_str(a, op, b), Self::meet_rel_op_str).into(),
+            (Self::String(lhs), Self::String(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::String, |a, op, b| Self::rel_op_str(a, op, b)).into(),
+            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Bytes, |a, op, b| Self::rel_op_str(a, op, b)).into(),
 
             (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs.clone(), rhs.clone()).into(),
             (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs.clone(), rhs.clone()).into(),
@@ -164,11 +176,11 @@ impl Value {
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => self,
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bool(None).into(),
 
-            (Self::Int(lhs  ), Self::Int(rhs  )) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Int, Self::rel_op_ord, Self::join_rel_op_ord).into(),
-            (Self::Float(lhs), Self::Float(rhs)) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Float, Self::rel_op_ord, Self::join_rel_op_ord).into(),
+            (Self::Int(lhs  ), Self::Int(rhs  )) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Int, Self::rel_op_ord).into(),
+            (Self::Float(lhs), Self::Float(rhs)) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Float, Self::rel_op_ord).into(),
 
-            (Self::Bytes(lhs ), Self::Bytes(rhs )) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Bytes, |a, op, b| Self::rel_op_str(a, op, b), Self::join_rel_op_str).into(),
-            (Self::String(lhs), Self::String(rhs)) => Self::join_basic(lhs.clone(), rhs.clone(), Self::String, |a, op, b| Self::rel_op_str(a, op, b), Self::join_rel_op_str).into(),
+            (Self::Bytes(lhs ), Self::Bytes(rhs )) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Bytes, |a, op, b| Self::rel_op_str(a, op, b)).into(),
+            (Self::String(lhs), Self::String(rhs)) => Self::join_basic(lhs.clone(), rhs.clone(), Self::String, |a, op, b| Self::rel_op_str(a, op, b)).into(),
 
             (Self::Disjunction(lhs), _) => Self::join_disjunction(lhs.clone(), other).into(),
             (_, Self::Disjunction(rhs)) => Self::join_disjunction(rhs.clone(), self).into(),
@@ -177,12 +189,11 @@ impl Value {
         }
     }
 
-    fn meet_basic<T: PartialEq + Display>(
+    fn meet_basic<T: PartialEq + Clone + Display>(
         lhs: Basic<T>,
         rhs: Basic<T>,
         construct: fn(Basic<T>) -> Self,
-        rel_op: fn(&T, RelOp, &T) -> bool,
-        meet_rel_op: fn((RelOp, &T), (RelOp, &T), fn(Basic<T>) -> Self) -> Self,
+        rel_op: fn(&T, RelOp, &T) -> bool
     ) -> Self {
         match (&lhs, &rhs) {
             (Basic::Type, _) => construct(rhs),
@@ -194,24 +205,43 @@ impl Value {
             (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(rhs),
 
             (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
-                let res = meet_rel_op((*opa, a), (*opb, b), construct);
-
-                let rel_op_bools = (rel_op(a, *opa, b), rel_op(a, *opb, b), rel_op(b, *opa, a), rel_op(b, *opb, a));
-                println!("{rel_op_bools:?}: {opa}{a} & {opa}{a} == {res}");
-
-                res
+                match (
+                    rel_op(a, *opb, b),
+                    rel_op(b, *opa, a),
+                    rel_op(a, *opa, b),
+                    rel_op(b, *opb, a)
+                ) {
+                    (true, true, true, true) => construct(Basic::Value(a.clone())),
+                    (true, true, _, _) => Value::Conjunction(vec![
+                        construct(Basic::Relation(*opa, a.clone())).into(),
+                        construct(Basic::Relation(*opb, b.clone())).into()
+                    ]),
+                    (true, false, _, _) if a != b => construct(Basic::Relation(*opa, a.clone())),
+                    (false, true, _, _) if a != b => construct(Basic::Relation(*opb, b.clone())),
+                    (_, _, _, _) => {
+                        match_basic!((*opa, a), (*opb, b), construct, Value::Conjunction, {
+                            ((!=_) & (<=b)) => (<b),
+                            ((!=_) & (>=b)) => (>b),
+                            ((!=_) & (< b)) => (<b),
+                            ((!=_) & (> b)) => (>b),
+                            ((<a)  & (<=_)) => (<a),
+                            ((>a)  & (>=_)) => (>a),
+                            ((<_)  & (>=_)) => (bot),
+                            ((>_)  & (<=_)) => (bot),
+                        })
+                    },
+                }
             }
 
             (_, _) => Self::Bottom,
         }
     }
 
-    fn join_basic<T: PartialEq>(
+    fn join_basic<T: PartialEq + Clone + Display>(
         lhs: Basic<T>,
         rhs: Basic<T>,
         construct: fn(Basic<T>) -> Self,
         rel_op: fn(&T, RelOp, &T) -> bool,
-        join_rel_op: fn((RelOp, &T), (RelOp, &T), fn(Basic<T>) -> Self) -> Self,
     ) -> Self {
         match (&lhs, &rhs) {
             (Basic::Type, _) => construct(lhs),
@@ -225,79 +255,37 @@ impl Value {
             (Basic::Relation(op, a), Basic::Value(b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
 
             (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
-                join_rel_op((*opa, a), (*opb, b), construct)
+                match (
+                    rel_op(a, *opb, b),
+                    rel_op(b, *opa, a),
+                    rel_op(a, *opa, b),
+                    rel_op(b, *opb, a)
+                ) {
+                    (true, true, _, _) => construct(Basic::Type),
+                    (false, false, _, _) if a != b => Value::Disjunction(vec![
+                        construct(Basic::Relation(*opa, a.clone())).into(),
+                        construct(Basic::Relation(*opb, b.clone())).into()
+                    ]),
+                    (false, true, _, _) if a != b => construct(Basic::Relation(*opa, a.clone())),
+                    (true, false, _, _) if a != b => construct(Basic::Relation(*opb, b.clone())),
+                    (_, _, _, _) => {
+                        match_basic!((*opa, a), (*opb, b), construct, Value::Disjunction, {
+                            ((!=_) | (<=_)) => (typ),
+                            ((!=_) | (>=_)) => (typ),
+                            ((!=a) | (< _)) => (!=a),
+                            ((!=a) | (> _)) => (!=a),
+                            ((<_)  | (> b)) => (!=b),
+                            ((<_)  | (<=b)) => (<=b),
+                            ((>_)  | (>=b)) => (>=b),
+                            ((<_)  | (>=_)) => (typ),
+                            ((>_)  | (<=_)) => (typ),
+                        })
+                    },
+                }
             }
 
             (_, _) => Self::Disjunction(vec![construct(lhs).into(), construct(rhs).into()]),
         }
-    }
-
-    fn meet_rel_op_str<T: Eq + Clone>(
-        a: (RelOp, &T),
-        b: (RelOp, &T),
-        construct: fn(Basic<T>) -> Self,
-    ) -> Self {
-        match_rel_ops!(a, b, construct, Value::Conjunction, {
-            ((>=a) | (<=b)) if a == b => (a),
-            ((match a) | (notmatch b)) if a == b => (bot),
-        })
-    }
-
-    fn meet_rel_op_ord<T: PartialEq + PartialOrd + Copy>(
-        a: (RelOp, &T),
-        b: (RelOp, &T),
-        construct: fn(Basic<T>) -> Self,
-    ) -> Self {
-        match_rel_ops!(a, b, construct, Value::Conjunction, {
-            ((>=a) & (>=b)) if a <= b => (>=b) else => (>=a),
-            ((>=a) & (<=b)) if a == b => (a) else if b < a => (bot),
-            ((>=a) & (!=b)) if a >  b => (>=a) else if a == b => (>a),
-            ((>=a) & (> b)) if a <= b => (> b) else => (>=a),
-            ((>=a) & (< b)) if a >= b => (bot),
-            ((> a) & (> b)) if a <  b => (> b),
-            ((> a) & (< b)) if a >= b => (bot),
-            ((> a) & (<=b)) if a >= b => (bot),
-            ((> a) & (!=b)) if a >= b => (> a),
-            ((< a) & (< b)) if a >  b => (< b) else => (< a),
-            ((< a) & (<=b)) if a >  b => (<=b) else => (< a),
-            ((< a) & (!=b)) if a <= b => (< a),
-            ((<=a) & (<=b)) if a >  b => (<=b) else => (<=a),
-            ((<=a) & (!=b)) if a <  b => (<=a) else if a == b => (<a),
-        })
-    }
-
-    fn join_rel_op_str<T: Eq + Clone>(
-        a: (RelOp, &T),
-        b: (RelOp, &T),
-        construct: fn(Basic<T>) -> Self,
-    ) -> Self {
-        match_rel_ops!(a, b, construct, Value::Disjunction, {
-            ((>=a) | (<=b)) if a == b => (typ),
-            ((match a) | (notmatch b)) if a == b => (typ),
-        })
-    }
-
-    fn join_rel_op_ord<T: PartialEq + PartialOrd + Copy>(
-        a: (RelOp, &T),
-        b: (RelOp, &T),
-        construct: fn(Basic<T>) -> Self,
-    ) -> Self {
-        match_rel_ops!(a, b, construct, Value::Disjunction, {
-            ((>=a) | (>=b)) if a <= b => (>=a) else => (>=b),
-            ((>=a) | (<=b)) if a <= b => (typ),
-            ((>=a) | (!=b)) if a <= b => (typ) else => (!=b),
-            ((>=a) | (> b)) if a <= b => (>=a) else => (> b),
-            ((>=a) | (< b)) if a <= b => (typ),
-            ((> a) | (> b)) if a <  b => (> a),
-            ((> a) | (< b)) if a == b => (!=a) else if a < b => (typ),
-            ((> a) | (<=b)) if a <= b => (typ),
-            ((> a) | (!=b)) if a <  b => (typ) else => (!=b),
-            ((< a) | (< b)) if a >  b => (< a) else => (< b),
-            ((< a) | (<=b)) if a >  b => (< a) else => (<=b),
-            ((< a) | (!=b)) if a <= b => (!=b) else => (typ),
-            ((<=a) | (<=b)) if a >  b => (<=a) else => (<=b),
-            ((<=a) | (!=b)) if a <  b => (!=b) else => (typ),
-        })
     }
 
     fn rel_op_str(lhs: &str, op: RelOp, rhs: &str) -> bool {

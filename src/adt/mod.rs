@@ -21,46 +21,31 @@ macro_rules! val {
     ($construct:ident, typ) => { $construct(Basic::Type) };
     ($construct:ident, bot) => { Value::Bottom };
     ($construct:ident, $a:ident) => { $construct(Basic::Value($a.clone())) };
-    ($construct:ident, $op:tt $a:ident) => { $construct(Basic::Relation(crate::rel_op!($op), *$a)) };
+    ($construct:ident, $op:tt $a:ident) => { $construct(Basic::Relation(crate::rel_op!($op), $a.clone())) };
 }
 
 #[macro_export]
-macro_rules! match_rel_ops {
-    ($ainput:ident, $binput:ident, $construct:ident, $fallback:path, {
+macro_rules! match_basic {
+    ($ainput:expr, $binput:expr, $construct:ident, $fallback:path, {
         $(
             (
-                ($opa:tt $a:ident)
+                ($opa:tt $a:tt)
                 $_:tt
-                ($opb:tt $b:ident)
+                ($opb:tt $b:tt)
             )
-            if $guard:expr
             =>
-            ( $($res:tt)+ )
-            $( else if $elif:expr => ( $($elifres:tt)+ ) )*
-            $( else => ( $($elres:tt)+ ) )?,
+            ( $($res:tt)+ ),
         )+
     }) => {
         match ($ainput, $binput) {
             $(
-                ((crate::rel_op!($opa), $a), (crate::rel_op!($opb), $b)) if $guard => { crate::val!($construct, $($res)+) }
-                ((crate::rel_op!($opb), $b), (crate::rel_op!($opa), $a)) if $guard => { crate::val!($construct, $($res)+) }
-                $(
-                    ((crate::rel_op!($opa), $a), (crate::rel_op!($opb), $b)) if $elif => { crate::val!($construct, $($elifres)+) }
-                    ((crate::rel_op!($opb), $b), (crate::rel_op!($opa), $a)) if $elif => { crate::val!($construct, $($elifres)+) }
-                )*
-                $(
-                    ((crate::rel_op!($opa), $a), (crate::rel_op!($opb), $b)) if !$guard => { crate::val!($construct, $($elres)+) }
-                    ((crate::rel_op!($opb), $b), (crate::rel_op!($opa), $a)) if !$guard => { crate::val!($construct, $($elres)+) }
-                )?
+                ((crate::rel_op!($opa), $a), (crate::rel_op!($opb), $b)) => { crate::val!($construct, $($res)+) }
+                ((crate::rel_op!($opb), $b), (crate::rel_op!($opa), $a)) => { crate::val!($construct, $($res)+) }
             ),+
-            ((opa, a), (opb, b)) => $fallback(vec![
-                $construct(Basic::Relation(opa, a.clone())).into(),
-                $construct(Basic::Relation(opb, b.clone())).into()
-            ])
+            (_, _) => Value::Bottom,
         }
     };
 }
-
 
 #[macro_export]
 macro_rules! cue_val {
