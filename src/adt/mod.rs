@@ -73,7 +73,7 @@ macro_rules! cue_val {
         Value::Struct(vec![
             $(Field {
                 label: stringify!($k).into(),
-                optional: false,
+                optional: None,
                 definition: false,
                 hidden: false,
                 value: crate::cue_val!($($v)+).into(),

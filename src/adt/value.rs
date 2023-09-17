@@ -3,8 +3,7 @@ use std::{fmt::Debug, fmt::Display, rc::Rc};
 use regex::Regex;
 
 use super::op::RelOp;
-use crate::{match_basic, assert_cue};
-
+use crate::{assert_cue, cue_val, match_basic};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
@@ -31,48 +30,52 @@ pub enum Value {
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        macro_rules! write_list {
-            ($items:ident, $sep:literal) => { write_list!($items, "", $sep, "") };
-            ($items:ident, $start:literal, $sep:literal, $end: literal) => {
-                {
-                    if let Some((last, items)) = $items.split_last() {
-                        write!(f, "{}", $start)
-                        .and_then(|_| {
-                            items.iter()
-                            .fold(Ok(()), |acc, item| {
-                                acc
-                                .and_then(|_| Display::fmt(item, f))
-                                .and_then(|_| write!(f, "{}", $sep))
-                            })
-                        .and_then(|_| Display::fmt(last, f))
-                        .and_then(|_| write!(f, "{}", $end))
-                        })
-
-                    } else {
-                        Err(std::fmt::Error)
-                    }
-                }
+        macro_rules! write_separated {
+            ($items:ident, $sep:literal) => {
+                write_separated!($items, "", $sep, "")
             };
+            ($items:ident, $start:literal, $sep:literal, $end: literal) => {{
+                write!(f, "{}", $start)
+                    .and_then(|_| {
+                        if let Some((last, items)) = $items.split_last() {
+                            items
+                                .iter()
+                                .fold(Ok(()), |acc, item| {
+                                    acc.and_then(|_| Display::fmt(item, f))
+                                        .and_then(|_| write!(f, "{}", $sep))
+                                })
+                                .and_then(|_| Display::fmt(last, f))
+                        } else {
+                            Ok(())
+                        }
+                    })
+                    .and_then(|_| write!(f, "{}", $end))
+            }};
         }
         match self {
             Value::Top => write!(f, "_"),
 
-            Value::Disjunction(items) => write_list!(items, " | "),
-            Value::Conjunction(items) => write_list!(items, " & "),
+            Value::Disjunction(items) => write_separated!(items, " | "),
+            Value::Conjunction(items) => write_separated!(items, " & "),
 
-            Value::Struct(items) => write_list!(items, "{", ",\n", "}"),
+            Value::Struct(items) => write_separated!(items, "{", ",\n", "}"),
 
-            Value::List(items) => write_list!(items, "[", ",\n", "]"),
+            Value::List(items) => write_separated!(items, "[", ",\n", "]"),
 
             Value::String(Basic::Type) => write!(f, "string"),
             Value::Bytes(Basic::Type) => write!(f, "bytes"),
             Value::Float(Basic::Type) => write!(f, "float"),
             Value::Int(Basic::Type) => write!(f, "int"),
 
-            Value::String(val) => Display::fmt(val, f),
-            Value::Bytes(val) => Display::fmt(val, f),
-            Value::Float(val) => Display::fmt(val, f),
-            Value::Int(val) => Display::fmt(val, f),
+            Value::String(Basic::Value(val)) => write!(f, "\"{}\"", val),
+            Value::Bytes(Basic::Value(val)) => write!(f, "'{}'", val),
+            Value::Float(Basic::Value(val)) => write!(f, "{}", val),
+            Value::Int(Basic::Value(val)) => write!(f, "{}", val),
+
+            Value::String(Basic::Relation(op, val)) => write!(f, "{}\"{}\"", op, val),
+            Value::Bytes(Basic::Relation(op, val)) => write!(f, "{}'{}'", op, val),
+            Value::Float(Basic::Relation(op, val)) => write!(f, "{}{}", op, val),
+            Value::Int(Basic::Relation(op, val)) => write!(f, "{}{}", op, val),
 
             Value::Bool(None) => write!(f, "bool"),
             Value::Bool(Some(true)) => write!(f, "true"),
@@ -92,20 +95,10 @@ pub enum Basic<T> {
     Value(T),
 }
 
-impl<T: Display> Display for Basic<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Type => write!(f, ""),
-            Self::Relation(op, val) => write!(f, "{}{}", op, val),
-            Self::Value(val) => write!(f, "{}", val),
-        }
-    }
-}
-
 #[derive(Debug, PartialEq, Clone)]
 pub struct Field {
     label: Rc<str>,
-    optional: bool,
+    optional: Option<bool>,
     definition: bool,
     hidden: bool,
     value: Rc<Value>,
@@ -114,9 +107,17 @@ pub struct Field {
 impl Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let definition = if self.definition { "#" } else { "" };
-        let optional = if self.optional { "?" } else { "" };
+        let optional = match self.optional {
+            None => "",
+            Some(true) => "?",
+            Some(false) => "!",
+        };
         let hidden = if self.hidden { "_" } else { "" };
-        write!(f, "{}{}{}{}: {}", hidden, definition, self.label, optional, self.value)
+        write!(
+            f,
+            "{hidden}{definition}{}{optional}: {}",
+            self.label, self.value
+        )
     }
 }
 
@@ -193,7 +194,7 @@ impl Value {
         lhs: Basic<T>,
         rhs: Basic<T>,
         construct: fn(Basic<T>) -> Self,
-        rel_op: fn(&T, RelOp, &T) -> bool
+        rel_op: fn(&T, RelOp, &T) -> bool,
     ) -> Self {
         match (&lhs, &rhs) {
             (Basic::Type, _) => construct(rhs),
@@ -209,12 +210,12 @@ impl Value {
                     rel_op(a, *opb, b),
                     rel_op(b, *opa, a),
                     rel_op(a, *opa, b),
-                    rel_op(b, *opb, a)
+                    rel_op(b, *opb, a),
                 ) {
                     (true, true, true, true) => construct(Basic::Value(a.clone())),
                     (true, true, _, _) => Value::Conjunction(vec![
                         construct(Basic::Relation(*opa, a.clone())).into(),
-                        construct(Basic::Relation(*opb, b.clone())).into()
+                        construct(Basic::Relation(*opb, b.clone())).into(),
                     ]),
                     (true, false, _, _) if a != b => construct(Basic::Relation(*opa, a.clone())),
                     (false, true, _, _) if a != b => construct(Basic::Relation(*opb, b.clone())),
@@ -229,7 +230,7 @@ impl Value {
                             ((<_)  & (>=_)) => (bot),
                             ((>_)  & (<=_)) => (bot),
                         })
-                    },
+                    }
                 }
             }
 
@@ -250,8 +251,8 @@ impl Value {
             (Basic::Value(a), Basic::Value(b)) if a == b => construct(lhs),
 
             (Basic::Value(a), Basic::Relation(op, b)) if rel_op(a, *op, b) => construct(rhs),
-            (Basic::Value(a), Basic::Relation(op, b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
             (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(lhs),
+            (Basic::Value(a), Basic::Relation(op, b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
             (Basic::Relation(op, a), Basic::Value(b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
 
             (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
@@ -259,12 +260,12 @@ impl Value {
                     rel_op(a, *opb, b),
                     rel_op(b, *opa, a),
                     rel_op(a, *opa, b),
-                    rel_op(b, *opb, a)
+                    rel_op(b, *opb, a),
                 ) {
                     (true, true, _, _) => construct(Basic::Type),
                     (false, false, _, _) if a != b => Value::Disjunction(vec![
                         construct(Basic::Relation(*opa, a.clone())).into(),
-                        construct(Basic::Relation(*opb, b.clone())).into()
+                        construct(Basic::Relation(*opb, b.clone())).into(),
                     ]),
                     (false, true, _, _) if a != b => construct(Basic::Relation(*opa, a.clone())),
                     (true, false, _, _) if a != b => construct(Basic::Relation(*opb, b.clone())),
@@ -280,7 +281,7 @@ impl Value {
                             ((<_)  | (>=_)) => (typ),
                             ((>_)  | (<=_)) => (typ),
                         })
-                    },
+                    }
                 }
             }
 
@@ -378,13 +379,6 @@ impl Value {
 
     pub fn is_bottom(self: &Self) -> bool {
         *self == Self::Bottom
-    }
-
-    pub fn to_option(self: Self) -> Option<Self> {
-        match self {
-            Self::Bottom => None,
-            other => Some(other),
-        }
     }
 }
 
@@ -671,6 +665,23 @@ fn test_disjunct_infimum() {
     assert_cue!(((string) | (int) | (bool)) & (2) == (2));
     assert_cue!(((string) | (int) | (bool)) & ((2) | (true)) == ((2) | (true)));
     assert_cue!(((string) | (2) | (bool)) & ((int) | (true)) == ((2) | (true)));
+}
+
+#[test]
+fn test_format() {
+    assert_eq!(format!("{}", cue_val!((int))), "int");
+    assert_eq!(format!("{}", cue_val!((1))), "1");
+    assert_eq!(format!("{}", cue_val!((>1))), ">1");
+    assert_eq!(format!("{}", cue_val!((<=1))), "<=1");
+    assert_eq!(format!("{}", cue_val!((string))), "string");
+    assert_eq!(format!("{}", cue_val!(("hello"))), "\"hello\"");
+    assert_eq!(format!("{}", cue_val!((!="hello"))), "!=\"hello\"");
+    assert_eq!(format!("{}", cue_val!(({}))), "{}");
+    assert_eq!(format!("{}", cue_val!(({a: (1)}))), "{a: 1}");
+    assert_eq!(format!("{}", cue_val!(({a: (1), b: ({c: ("d")})}))), "{a: 1,\nb: {c: \"d\"}}");
+    assert_eq!(format!("{}", cue_val!(([]))), "[]");
+    assert_eq!(format!("{}", cue_val!(([(int)]))), "[int]");
+    assert_eq!(format!("{}", cue_val!(([(int), (true), ("hello")]))), "[int,\ntrue,\n\"hello\"]");
 }
 
 trait ToValue {
