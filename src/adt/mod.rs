@@ -1,5 +1,6 @@
 pub mod op;
 pub mod value;
+pub mod eval;
 
 mod macros {
 #[macro_export]
@@ -70,8 +71,8 @@ macro_rules! cue_val {
     ( $(($($a:tt)+))|+ ) => { Value::Disjunction(vec![$( crate::cue_val!($($a)+).into() ),+ ]) };
 
     ({ $($k:ident: ($($v:tt)+)),* }) => {
-        Value::Struct(vec![
-            $(Field {
+        crate::adt::value::Value::Struct(vec![
+            $(crate::adt::value::Field {
                 label: stringify!($k).into(),
                 optional: None,
                 definition: false,

@@ -4,7 +4,7 @@ use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
     Parser,
 };
-use std::vec;
+use std::{vec, rc::Rc};
 use std::result::Result;
 
 use crate::{ast, txtar};
@@ -97,7 +97,7 @@ fn test_pairs() {
 impl CUEParser {
     fn identifier(input: Pair<Rule>) -> ast::Ident {
         ast::Ident {
-            name: input.as_str().to_string(),
+            name: input.as_str().into(),
         }
     }
     fn unicode_char(input: Pair<Rule>) -> Result<char, Error> {
@@ -222,27 +222,23 @@ impl CUEParser {
     }
     fn string_lit(input: Pair<Rule>) -> Result<ast::BasicLit, Error> {
         match_pairs!(input.into_inner(), {
-            [simple_string_lit(s)] => s,
-            [multiline_string_lit(s)] => s,
-            [simple_bytes_lit(s)] => s,
-            [multiline_bytes_lit(s)] => s
+            [simple_string_lit(i)] => Ok(ast::BasicLit::String(i?)),
+            [multiline_string_lit(i)] => Ok(ast::BasicLit::String(i?)),
+            [simple_bytes_lit(i)] => Ok(ast::BasicLit::Bytes(i?)),
+            [multiline_bytes_lit(i)] => Ok(ast::BasicLit::Bytes(i?)),
         })
     }
-    fn simple_string_lit(input: Pair<Rule>) -> Result<ast::BasicLit, Error> {
-        let (strings, expressions) = interpolation_elements(input)?;
-        Ok(ast::BasicLit::String(strings, expressions))
+    fn simple_string_lit(input: Pair<Rule>) -> Result<ast::Interpolation, Error> {
+        interpolation_elements(input)
     }
-    fn simple_bytes_lit(input: Pair<Rule>) -> Result<ast::BasicLit, Error> {
-        let (strings, expressions) = interpolation_elements(input)?;
-        Ok(ast::BasicLit::Bytes(strings, expressions))
+    fn simple_bytes_lit(input: Pair<Rule>) -> Result<ast::Interpolation, Error> {
+        interpolation_elements(input)
     }
-    fn multiline_string_lit(input: Pair<Rule>) -> Result<ast::BasicLit, Error> {
-        let (strings, expressions) = interpolation_elements(input)?;
-        Ok(ast::BasicLit::String(strings, expressions))
+    fn multiline_string_lit(input: Pair<Rule>) -> Result<ast::Interpolation, Error> {
+        interpolation_elements(input)
     }
-    fn multiline_bytes_lit(input: Pair<Rule>) -> Result<ast::BasicLit, Error> {
-        let (strings, expressions) = interpolation_elements(input)?;
-        Ok(ast::BasicLit::Bytes(strings, expressions))
+    fn multiline_bytes_lit(input: Pair<Rule>) -> Result<ast::Interpolation, Error> {
+        interpolation_elements(input)
     }
     fn bottom_lit(_: Pair<Rule>) -> ast::BasicLit {
         ast::BasicLit::Bottom
@@ -324,20 +320,25 @@ impl CUEParser {
     }
     fn LabelExpr(input: Pair<Rule>) -> Result<ast::Label, Error> {
         Ok(match_pairs!(input.into_inner(), {
-            [LabelName(n)] => n?,
+            [identifier(i)] => ast::Label::Ident(i, None),
+            [simple_string_lit(s)] => ast::Label::String(s?, None),
             [AliasExpr(a)] => ast::Label::Bracket(a?),
-            [Expression(e)] => ast::Label::Paren(e?),
+            [Expression(e)] => ast::Label::Paren(e?, None),
+            [identifier(i), LabelModifier(m)] => ast::Label::Ident(i, Some(m?)),
+            [simple_string_lit(s), LabelModifier(m)] => ast::Label::String(s?, Some(m?)),
+            [Expression(e), LabelModifier(m)] => ast::Label::Paren(e?, Some(m?)),
         }))
     }
-    fn LabelName(input: Pair<Rule>) -> Result<ast::Label, Error> {
-        Ok(match_pairs!(input.into_inner(), {
-            [identifier(i)] => ast::Label::Ident(i),
-            [simple_string_lit(s)] => ast::Label::String(s?)
-        }))
+    fn LabelModifier(input: Pair<Rule>) -> Result<ast::LabelModifier, Error> {
+        match input.as_str() {
+            "?" => Ok(ast::LabelModifier::Optional),
+            "!" => Ok(ast::LabelModifier::Required),
+            _ => unreachable!("unknown label modifier {}", input),
+        }
     }
     fn attribute(input: Pair<Rule>) -> ast::Attribute {
         ast::Attribute {
-            text: input.as_str().to_string(),
+            text: input.as_str().into(),
         }
     }
     fn AliasExpr(input: Pair<Rule>) -> Result<ast::Expr, Error> {
@@ -395,8 +396,8 @@ impl CUEParser {
     }
     fn Selector(input: Pair<Rule>) -> Result<ast::Label, Error> {
         Ok(match_pairs!(input.into_inner(), {
-            [identifier(i)] => ast::Label::Ident(i),
-            [simple_string_lit(s)] => ast::Label::String(s?)
+            [identifier(i)] => ast::Label::Ident(i, None),
+            [simple_string_lit(s)] => ast::Label::String(s?, None),
         }))
     }
     fn Index(input: Pair<Rule>) -> Result<ast::Expr, Error> {
@@ -539,10 +540,10 @@ impl CUEParser {
             }
         }))
     }
-    fn ImportLocation(input: Pair<Rule>) -> String {
-        input.as_str().to_string()
+    fn ImportLocation(input: Pair<Rule>) -> Rc<str> {
+        input.as_str().into()
     }
-    fn ImportPath(input: Pair<Rule>) -> (String, Option<ast::Ident>) {
+    fn ImportPath(input: Pair<Rule>) -> (Rc<str>, Option<ast::Ident>) {
         match_pairs!(input.into_inner(), {
             [ImportLocation(path)] => (path, None),
             [ImportLocation(path), identifier(package)] => (path, Some(package))
@@ -581,9 +582,9 @@ impl CUEParser {
     }
 }
 
-fn interpolation_elements(input: Pair<Rule>) -> Result<(Vec<String>, Vec<ast::Expr>), Error> {
+fn interpolation_elements(input: Pair<Rule>) -> Result<ast::Interpolation, Error> {
     let mut current_str = String::new();
-    let mut string_parts = vec![];
+    let mut string_parts: Vec<Rc<str>> = vec![];
     let mut expr_parts = vec![];
     let mut ending_indent: &str = "";
 
@@ -602,7 +603,7 @@ fn interpolation_elements(input: Pair<Rule>) -> Result<(Vec<String>, Vec<ast::Ex
             Rule::ending_indent => ending_indent = n.as_str(),
 
             Rule::Interpolation => {
-                string_parts.push(current_str.clone());
+                string_parts.push(current_str.clone().into());
                 current_str.clear();
                 expr_parts.push(CUEParser::Interpolation(n)?);
             }
@@ -610,21 +611,25 @@ fn interpolation_elements(input: Pair<Rule>) -> Result<(Vec<String>, Vec<ast::Ex
             _ => unreachable!("unreachable interpolation_element: {:#?}", n.as_rule()),
         }
     }
-    string_parts.push(current_str);
+    string_parts.push(current_str.into());
 
     let n_end_indent = format!("\n{}", ending_indent);
     if let Some((first, rest)) = string_parts.split_first_mut() {
         let first_trimmed = first.trim_start_matches(ending_indent).replace(n_end_indent.as_str(), "\n").to_string();
         string_parts = rest
             .into_iter()
-            .map(|s| s.replace(n_end_indent.as_str(), "\n"))
+            .map(|s| s.replace(n_end_indent.as_str(), "\n").into())
             .collect();
-        string_parts.insert(0, first_trimmed)
+        string_parts.insert(0, first_trimmed.into())
     }
 
     assert_eq!(expr_parts.len(), string_parts.len() - 1);
 
-    return Ok((string_parts, expr_parts));
+    return Ok(if string_parts.len() == 1 {
+        ast::Interpolation::Simple(string_parts[0].clone())
+    } else {
+        ast::Interpolation::Interpolated(string_parts, expr_parts)
+    });
 }
 
 fn parse_digits_radix(input: Pair<Rule>, radix: u32) -> Result<char, String> {
@@ -685,7 +690,6 @@ fn binary_op(input: Pair<Rule>) -> Result<ast::Operator, Error> {
         x => unreachable!("binary_op {:?}", x),
     }
 }
-use regex::Regex;
 
 #[allow(unused_macros)]
 macro_rules! parse_single {
@@ -757,8 +761,8 @@ fn test_si() {
 
 #[test]
 fn test_strings() {
-    let str = |s: &str| Ok(ast::BasicLit::String(vec![s.to_string()], vec![]));
-    let bytes = |s: &str| Ok(ast::BasicLit::Bytes(vec![s.to_string()], vec![]));
+    let str = |s: &str| Ok(ast::BasicLit::String(ast::Interpolation::Simple(s.into())));
+    let bytes = |s: &str| Ok(ast::BasicLit::Bytes(ast::Interpolation::Simple(s.into())));
 
     assert_eq!(parse_str(r#""test""#), str("test"));
     assert_eq!(parse_str(r##"#""test""#"##), str(r#""test""#));
@@ -791,14 +795,18 @@ fn test_strings() {
 fn test_strings_interpolated() {
     let str = |ss: Vec<&str>, exs: Vec<Result<ast::Expr, Error>>| {
         Ok(ast::BasicLit::String(
-            ss.into_iter().map(|s| s.to_string()).collect(),
-            exs.into_iter().map(|e| e.unwrap()).collect(),
+            ast::Interpolation::Interpolated(
+                ss.into_iter().map(|s| s.into()).collect(),
+                exs.into_iter().map(|e| e.unwrap()).collect(),
+            )
         ))
     };
     let bytes = |ss: Vec<&str>, exs: Vec<Result<ast::Expr, Error>>| {
         Ok(ast::BasicLit::Bytes(
-            ss.into_iter().map(|s| s.to_string()).collect(),
-            exs.into_iter().map(|e| e.unwrap()).collect(),
+            ast::Interpolation::Interpolated(
+                ss.into_iter().map(|s| s.into()).collect(),
+                exs.into_iter().map(|e| e.unwrap()).collect(),
+            )
         ))
     };
     assert_eq!(
@@ -807,7 +815,7 @@ fn test_strings_interpolated() {
     );
     assert_eq!(
         parse_str(r##"#""test \(1 + 1)""#"##),
-        str(vec![r#""test \(1 + 1)""#], vec![])
+        Ok(ast::BasicLit::String(ast::Interpolation::Simple(r#""test \(1 + 1)""#.into()))),
     );
     assert_eq!(
         parse_str(r##"#""test \#(1 + 1)""#"##),
@@ -820,7 +828,7 @@ fn test_strings_interpolated() {
     );
     assert_eq!(
         parse_str(r##"#''test \(1 + 1)''#"##),
-        bytes(vec![r#"'test \(1 + 1)'"#], vec![])
+        Ok(ast::BasicLit::Bytes(ast::Interpolation::Simple(r#"'test \(1 + 1)'"#.into()))),
     );
     assert_eq!(
         parse_str(r##"#''test \#(1 + 1)''#"##),
@@ -854,26 +862,26 @@ fn test_label() {
     assert_eq!(
         parse_single!(Label, "identifier"),
         Ok(ast::Label::Ident(ast::Ident {
-            name: "identifier".to_string()
-        }))
+            name: "identifier".into()
+        }, None))
     );
     assert_eq!(
         parse_single!(Label, "\"quoted\""),
         Ok(ast::Label::String(
-            parse_single!(string_lit, "\"quoted\"").unwrap()
+            parse_single!(simple_string_lit, "\"quoted\"").unwrap(), None
         ))
     );
     assert_eq!(
         parse_single!(Label, "(parenthesis)"),
         Ok(ast::Label::Paren(ast::Expr::Ident(ast::Ident {
-            name: "parenthesis".to_string()
-        })))
+            name: "parenthesis".into()
+        }), None))
     );
     assert_eq!(
         parse_single!(Label, "[brackets=string]"),
         Ok(ast::Label::bracket(ast::Expr::alias(
             ast::Ident::from("brackets"),
-            ast::Expr::ident("string".to_string())
+            ast::Expr::ident("string".into())
         ))),
     );
 }
@@ -969,6 +977,7 @@ fn test_txtar_parse() {
             // filename.contains("builtins/closed.txtar") // bracket label needs comma
             // ||
             filename.contains("compile/labels.txtar") // actual syntax errro
+            || filename.contains("compile/erralias.txtar") // actual syntax errro
             // || filename.contains("cycle/constraints.txtar") // bracket label needs comma
             // || filename.contains("cycle/patterns.txtar") // bracket label needs comma
             // || filename.contains("definitions/dynamic.txtar") // parens label needs comma
@@ -987,9 +996,9 @@ fn test_txtar_parse() {
         let txtar = txtar::parse_file(filename).expect("txtarparse is infallible, right?");
 
         if let Some(cue_input) = txtar.get_section("in.cue") {
-            println!("{}: in.cue:\n{}", filename, cue_input);
+            // println!("{}: in.cue:\n{}", filename, cue_input);
 
-            let parsed = parse_file(&cue_input.as_str()).expect("should succeed");
+            let _parsed = parse_file(&cue_input.as_str()).expect("should succeed");
         }
         // println!("parsed: {:#?}", parsed)
     }

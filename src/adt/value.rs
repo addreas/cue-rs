@@ -97,11 +97,11 @@ pub enum Basic<T> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Field {
-    label: Rc<str>,
-    optional: Option<bool>,
-    definition: bool,
-    hidden: bool,
-    value: Rc<Value>,
+    pub label: Rc<str>,
+    pub optional: Option<bool>,
+    pub definition: bool,
+    pub hidden: bool,
+    pub value: Rc<Value>,
 }
 
 impl Display for Field {
@@ -684,7 +684,7 @@ fn test_format() {
     assert_eq!(format!("{}", cue_val!(([(int), (true), ("hello")]))), "[int,\ntrue,\n\"hello\"]");
 }
 
-trait ToValue {
+pub trait ToValue {
     fn to_value(self) -> Value;
     fn to_value_relation(self, op: RelOp) -> Value;
 }

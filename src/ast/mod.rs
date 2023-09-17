@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 pub mod parser;
 
 pub trait Node {
@@ -42,7 +44,7 @@ pub enum Operator {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Comment {
-    pub text: String,
+    pub text: Rc<str>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -56,7 +58,7 @@ pub struct CommentGroup {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Ident {
-    pub name: String,
+    pub name: Rc<str>,
     // scope: Node,
     // node: Node,
 }
@@ -64,7 +66,7 @@ pub struct Ident {
 impl Ident {
     pub fn from(name: &str) -> Self {
         Self {
-            name: String::from(name),
+            name: name.into(),
         }
     }
 }
@@ -81,15 +83,21 @@ pub enum BasicLit {
     Bool(bool),
     Int(i64),
     Float(f64),
-    String(Vec<String>, Vec<Expr>),
-    Bytes(Vec<String>, Vec<Expr>),
+    String(Interpolation),
+    Bytes(Interpolation),
     // Duration,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Interpolation {
+    Simple(Rc<str>),
+    Interpolated(Vec<Rc<str>>, Vec<Expr>)
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ImportSpec {
     pub alias: Option<Ident>,
-    pub path: String,
+    pub path: Rc<str>,
     pub package: Option<Ident>,
 }
 
@@ -103,7 +111,7 @@ pub struct SourceFile {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Attribute {
-    pub text: String,
+    pub text: Rc<str>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -146,28 +154,34 @@ pub struct StructLit {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Label {
     // TODO: optionals
-    Ident(Ident),
-    Alias(Ident, Box<Label>), // todo: better representation of this?
-    String(BasicLit),
-    Paren(Expr),
+    Ident(Ident, Option<LabelModifier>),
+    Alias(Ident, Box<Label>, Option<LabelModifier>), // todo: better representation of this?
+    String(Interpolation, Option<LabelModifier>),
+    Paren(Expr, Option<LabelModifier>),
     Bracket(Expr),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum LabelModifier {
+    Optional,
+    Required
 }
 
 impl Label {
     pub fn ident(x: Ident) -> Self {
-        Self::Ident(x)
+        Self::Ident(x, None)
     }
     pub fn alias(ident: Ident, expr: Label) -> Self {
-        Self::Alias(ident, Box::new(expr))
+        Self::Alias(ident, Box::new(expr), None)
     }
-    pub fn string(s: String) -> Self {
-        Self::String(BasicLit::String(vec![s], vec![]))
+    pub fn string(s: Rc<str>) -> Self {
+        Self::String(Interpolation::Simple(s), None)
     }
-    pub fn string_interpolation(strings: Vec<String>, interpolations: Vec<Expr>) -> Self {
-        Self::String(BasicLit::String(strings, interpolations))
+    pub fn string_interpolation(strings: Vec<Rc<str>>, interpolations: Vec<Expr>) -> Self {
+        Self::String(Interpolation::Interpolated(strings, interpolations), None)
     }
     pub fn paren(x: Expr) -> Self {
-        Self::Paren(x)
+        Self::Paren(x, None)
     }
     pub fn bracket(x: Expr) -> Self {
         Self::Bracket(x)
@@ -195,7 +209,7 @@ impl Declaration {
     pub fn comment_group(cg: CommentGroup) -> Self {
         Self::CommentGroup(cg)
     }
-    pub fn attribute(text: String) -> Self {
+    pub fn attribute(text: Rc<str>) -> Self {
         Self::Attribute(Attribute { text })
     }
     pub fn field(label: Label, value: Expr) -> Self {
@@ -306,17 +320,17 @@ pub enum Expr {
 }
 
 impl Expr {
-    pub fn basic_string(x: String) -> Self {
-        Self::BasicLit(BasicLit::String(vec![x], vec![]))
+    pub fn basic_string(x: Rc<str>) -> Self {
+        Self::BasicLit(BasicLit::String(Interpolation::Simple(x)))
     }
-    pub fn string_interpolation(strings: Vec<String>, interpolations: Vec<Expr>) -> Self {
-        Self::BasicLit(BasicLit::String(strings, interpolations))
+    pub fn string_interpolation(strings: Vec<Rc<str>>, interpolations: Vec<Expr>) -> Self {
+        Self::BasicLit(BasicLit::String(Interpolation::Interpolated(strings, interpolations)))
     }
-    pub fn basic_bytes(x: String) -> Self {
-        Self::BasicLit(BasicLit::Bytes(vec![x], vec![]))
+    pub fn basic_bytes(x: Rc<str>) -> Self {
+        Self::BasicLit(BasicLit::Bytes(Interpolation::Simple(x)))
     }
-    pub fn bytes_interpolation(strings: Vec<String>, interpolations: Vec<Expr>) -> Self {
-        Self::BasicLit(BasicLit::Bytes(strings, interpolations))
+    pub fn bytes_interpolation(strings: Vec<Rc<str>>, interpolations: Vec<Expr>) -> Self {
+        Self::BasicLit(BasicLit::Bytes(Interpolation::Interpolated(strings, interpolations)))
     }
     pub fn int(x: i64) -> Self {
         Self::BasicLit(BasicLit::Int(x))
@@ -336,7 +350,7 @@ impl Expr {
     pub fn comprehension(clauses: Vec<Clause>, expr: Expr) -> Self {
         Self::Comprehension(Box::new(Comprehension { clauses, expr }))
     }
-    pub fn ident(name: String) -> Self {
+    pub fn ident(name: Rc<str>) -> Self {
         Self::Ident(Ident { name })
     }
     pub fn qualified_ident(package: Ident, ident: Ident) -> Self {
@@ -396,6 +410,6 @@ impl Expr {
     }
 }
 
-pub fn new_str<'a>(s: String) -> Expr {
-    Expr::BasicLit(BasicLit::String(vec![s], vec![]))
+pub fn new_str(s: Rc<str>) -> Expr {
+    Expr::BasicLit(BasicLit::String(Interpolation::Simple(s)))
 }

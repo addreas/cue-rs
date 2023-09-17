@@ -7,7 +7,7 @@
 #![feature(const_trait_impl)]
 #![feature(stmt_expr_attributes)]
 pub mod adt;
-pub mod adt_old;
+// pub mod adt_old;
 pub mod ast;
 pub mod txtar;
 

@@ -77,11 +77,11 @@ Embedding       = { Comprehension | AliasExpr }
 Field           = { Labels ~ nl ~ AliasExpr ~ attribute* }
 Labels          = { ( Label ~ nl ~ ":" ~ nl )+ }
 Label           = { ( identifier ~ !(equal_op) ~ "=" )? ~ nl ~ LabelExpr ~ nl }
-LabelExpr       = { ( LabelName ~ ("?" | "!")? )
+LabelExpr       = { ( (identifier | simple_string_lit) ~ LabelModifier? )
                   | ( "[" ~ nl ~ AliasExpr ~ nl ~ "]" )
-                  | ( "(" ~ nl ~ Expression ~ nl ~ ")" ~ ("?" | "!")? )
+                  | ( "(" ~ nl ~ Expression ~ nl ~ ")" ~ LabelModifier? )
                   }
-LabelName       = { identifier | simple_string_lit  }
+LabelModifier   = { "?" | "!" }
 
 attribute       = { "@" ~ identifier ~ "(" ~ attr_tokens ~ ")" }
 attr_tokens     = { ( attr_token
