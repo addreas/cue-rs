@@ -167,8 +167,9 @@ impl Value {
                             ((!=_) & (> b)) => (>b),
                             ((<a)  & (<=_)) => (<a),
                             ((>a)  & (>=_)) => (>a),
-                            ((<_)  & (>=_)) => (bot),
-                            ((>_)  & (<=_)) => (bot),
+                            ((<_)  & (>=_)) => (_|_),
+                            ((>_)  & (<=_)) => (_|_),
+                            ((!~_) & (=~_)) => (_|_),
                         })
                     }
                 }
@@ -191,13 +192,9 @@ impl Value {
             (Basic::Value(a), Basic::Value(b)) if a == b => construct(lhs),
 
             (Basic::Value(a), Basic::Relation(op, b)) if rel_op(a, *op, b) => construct(rhs),
+            (Basic::Value(a), Basic::Relation(op, b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
             (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(lhs),
-            (Basic::Value(a), Basic::Relation(op, b)) if *op == RelOp::NotEqual && a == b => {
-                construct(Basic::Type)
-            }
-            (Basic::Relation(op, a), Basic::Value(b)) if *op == RelOp::NotEqual && a == b => {
-                construct(Basic::Type)
-            }
+            (Basic::Relation(op, a), Basic::Value(b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
 
             (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
                 match (
@@ -215,15 +212,16 @@ impl Value {
                     (true, false, _, _) if a != b => construct(Basic::Relation(*opb, b.clone())),
                     (_, _, _, _) => {
                         match_basic!((*opa, a), (*opb, b), construct, Value::Disjunction, {
-                            ((!=_) | (<=_)) => (typ),
-                            ((!=_) | (>=_)) => (typ),
+                            ((!=_) | (<=_)) => (_),
+                            ((!=_) | (>=_)) => (_),
                             ((!=a) | (< _)) => (!=a),
                             ((!=a) | (> _)) => (!=a),
                             ((<_)  | (> b)) => (!=b),
                             ((<_)  | (<=b)) => (<=b),
                             ((>_)  | (>=b)) => (>=b),
-                            ((<_)  | (>=_)) => (typ),
-                            ((>_)  | (<=_)) => (typ),
+                            ((<_)  | (>=_)) => (_),
+                            ((>_)  | (<=_)) => (_),
+                            ((!~_) | (=~_)) => (_),
                         })
                     }
                 }
@@ -330,7 +328,7 @@ impl Value {
 fn test_basic_meets() {
     use crate::assert_cue;
 
-    assert_cue!((_) & (_ | _) == (_ | _));
+    assert_cue!((_) & (_|_) == (_|_));
     assert_cue!((_) & (null) == (null));
     assert_cue!((_) & (bool) == (bool));
     assert_cue!((_) & (true) == (true));
@@ -588,6 +586,28 @@ fn test_int_supremum() {
 }
 
 #[test]
+fn test_str_infimum() {
+    use crate::assert_cue;
+
+    assert_cue!((string) & (string) == (string));
+    assert_cue!((string) & ("hello") == ("hello"));
+    assert_cue!((string) & (=~"hello") == (=~"hello"));
+
+    assert_cue!((!~"hello") & (=~"hello") == (_|_));
+}
+
+#[test]
+fn test_str_supremum() {
+    use crate::assert_cue;
+
+    assert_cue!((string) | (string) == (string));
+    assert_cue!((string) | ("hello") == (string));
+    assert_cue!((string) | (=~"hello") == (string));
+
+    assert_cue!((!~"hello") | (=~"hello") == (string));
+}
+
+#[test]
 fn test_struct_infimum() {
     use crate::assert_cue;
 
@@ -607,7 +627,7 @@ fn test_list_infimum() {
     use crate::assert_cue;
 
     assert_cue!(([]) & ([]) == ([]));
-    assert_cue!(([]) & ([(1), (2), (3)]) == (_ | _));
+    assert_cue!(([]) & ([(1), (2), (3)]) == (_|_));
     assert_cue!(([(int), (bool), (string)]) & ([(1), (bool), (=~"hello")]) == ([(1), (bool), (=~"hello")]));
 }
 
@@ -616,7 +636,7 @@ fn test_disjunct_infimum() {
     use crate::assert_cue;
 
     assert_cue!(((string) | (int) | (bool)) & (int) == (int));
-    assert_cue!(((string) | (int) | (bool)) & (null) == (_ | _));
+    assert_cue!(((string) | (int) | (bool)) & (null) == (_|_));
     assert_cue!(((string) | (int) | (bool)) & (>2) == (>2));
     assert_cue!(((string) | (int) | (bool)) & (2) == (2));
     assert_cue!(((string) | (int) | (bool)) & ((2) | (true)) == ((2) | (true)));

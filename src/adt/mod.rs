@@ -12,24 +12,25 @@ macro_rules! rel_op {
     (!=) => { RelOp::NotEqual };
     (=~) => { RelOp::Match };
     (!~) => { RelOp::NotMatch };
-
-    (match) => { RelOp::Match };
-    (notmatch) => { RelOp::NotMatch };
 }
 
 #[macro_export]
 macro_rules! match_basic {
-    (@val $construct:ident, typ) => { $construct(Basic::Type) };
-    (@val $construct:ident, bot) => { Value::Bottom };
+    (@val $construct:ident, _) => { $construct(Basic::Type) };
+    (@val $construct:ident, _|_) => { Value::Bottom };
     (@val $construct:ident, $a:ident) => { $construct(Basic::Value($a.clone())) };
     (@val $construct:ident, $op:tt $a:ident) => { $construct(Basic::Relation(crate::rel_op!($op), $a.clone())) };
+    (@val $construct:ident, $op:tt~ $a:ident) => { $construct(Basic::Relation(crate::rel_op!($op~), $a.clone())) };
+
+    (@pat $op:tt $val:tt) => { (crate::rel_op!($op), $val) };
+    (@pat $op:tt~ $val:tt) => { (crate::rel_op!($op~), $val) };
 
     ($ainput:expr, $binput:expr, $construct:ident, $fallback:path, {
         $(
             (
-                ($opa:tt $a:tt)
+                ($($lhs:tt)+)
                 $_:tt
-                ($opb:tt $b:tt)
+                ($($rhs:tt)+)
             )
             =>
             ( $($res:tt)+ ),
@@ -37,8 +38,8 @@ macro_rules! match_basic {
     }) => {
         match ($ainput, $binput) {
             $(
-                ((crate::rel_op!($opa), $a), (crate::rel_op!($opb), $b)) => { match_basic!(@val $construct, $($res)+) }
-                ((crate::rel_op!($opb), $b), (crate::rel_op!($opa), $a)) => { match_basic!(@val $construct, $($res)+) }
+                (match_basic!(@pat $($lhs)+), match_basic!(@pat $($rhs)+)) => { match_basic!(@val $construct, $($res)+) }
+                (match_basic!(@pat $($rhs)+), match_basic!(@pat $($lhs)+)) => { match_basic!(@val $construct, $($res)+) }
             ),+
             (_, _) => Value::Bottom,
         }
