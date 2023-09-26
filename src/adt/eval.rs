@@ -1,8 +1,7 @@
 use std::{rc::Rc, collections::HashMap, cell::{RefCell, Ref}};
 
-use crate::{ast, cue_val};
+use crate::ast;
 use super::value;
-use super::value::ToValue;
 
 pub struct Scope {
     parent: Option<Rc<Scope>>,
@@ -59,6 +58,7 @@ pub fn eval(source: ast::SourceFile) -> value::Value {
 
 #[test]
 fn test_source_file() {
+    use crate::cue_val;
     let eval_str = |str| eval(ast::parser::parse_file(str).unwrap());
 
     assert_eq!(eval_str("a: 1"), cue_val!({a: (1_i64)}));
