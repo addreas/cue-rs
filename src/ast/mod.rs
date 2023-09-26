@@ -105,7 +105,7 @@ pub struct ImportSpec {
 pub struct SourceFile {
     pub package: Option<Ident>,
     pub declarations: Vec<Declaration>,
-    pub imports: Vec<Declaration>,
+    pub imports: Vec<Vec<ImportSpec>>,
     pub attributes: Vec<Attribute>,
 }
 
@@ -198,7 +198,6 @@ pub enum Declaration {
     Comprehension(Comprehension),
     Ellipsis(Ellipsis),
     LetClause(LetClause),
-    ImportDecl(Vec<ImportSpec>),
     Embedding(Expr),
 }
 
@@ -230,9 +229,6 @@ impl Declaration {
     }
     pub fn let_clause(alias: Ident, value: Expr) -> Self {
         Self::LetClause(LetClause { alias, value })
-    }
-    pub fn import_decl(x: Vec<ImportSpec>) -> Self {
-        Self::ImportDecl(x)
     }
     pub fn embedding(x: Expr) -> Self {
         Self::Embedding(x)

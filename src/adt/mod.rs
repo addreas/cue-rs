@@ -69,10 +69,12 @@ macro_rules! cue_val {
     ({ $($k:ident: ($($v:tt)+)),* }) => {
         crate::adt::value::Value::Struct(vec![
             $(crate::adt::value::Field {
-                label: stringify!($k).into(),
-                optional: None,
-                definition: false,
-                hidden: false,
+                label: crate::adt::value::Label {
+                    name: stringify!($k).into(),
+                    optional: None,
+                    definition: false,
+                    hidden: false,
+                },
                 value: crate::cue_val!($($v)+).into(),
             }),*
         ])

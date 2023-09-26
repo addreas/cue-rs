@@ -5,6 +5,7 @@ use regex::Regex;
 use super::op::RelOp;
 use crate::match_basic;
 
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
     Top,
@@ -35,28 +36,33 @@ pub enum Basic<T> {
     Value(T),
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Field {
-    pub label: Rc<str>,
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct Label {
+    pub name: Rc<str>,
     pub optional: Option<bool>,
     pub definition: bool,
     pub hidden: bool,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub struct Field {
+    pub label: Label,
     pub value: Rc<Value>,
 }
 
 impl Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let definition = if self.definition { "#" } else { "" };
-        let optional = match self.optional {
+        let definition = if self.label.definition { "#" } else { "" };
+        let optional = match self.label.optional {
             None => "",
             Some(true) => "?",
             Some(false) => "!",
         };
-        let hidden = if self.hidden { "_" } else { "" };
+        let hidden = if self.label.hidden { "_" } else { "" };
         write!(
             f,
             "{hidden}{definition}{}{optional}: {}",
-            self.label, self.value
+            self.label.name, self.value
         )
     }
 }
@@ -89,8 +95,8 @@ impl Value {
             (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs.clone(), rhs.clone()).into(),
             (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs.clone(), rhs.clone()).into(),
 
-            (Self::Struct(fields), _) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields.clone()).into(), other]).into(),
-            (_, Self::Struct(fields)) if fields.iter().all(|f| f.hidden | f.definition) => Self::Disjunction(vec![Self::Struct(fields.clone()).into(), self]).into(),
+            (Self::Struct(fields), _) if fields.iter().all(|f| f.label.hidden | f.label.definition) => Self::Disjunction(vec![Self::Struct(fields.clone()).into(), other]).into(),
+            (_, Self::Struct(fields)) if fields.iter().all(|f| f.label.hidden | f.label.definition) => Self::Disjunction(vec![Self::Struct(fields.clone()).into(), self]).into(),
 
             (Self::Disjunction(lhs), _) => Self::meet_disjunction(lhs.clone(), other),
             (_, Self::Disjunction(rhs)) => Self::meet_disjunction(rhs.clone(), self),
@@ -267,9 +273,6 @@ impl Value {
                 .map_or(Self::Top.into(), |ff| ff.value.clone());
             fields.push(Field {
                 label: f.label.clone(),
-                optional: f.optional,
-                definition: f.definition,
-                hidden: f.hidden,
                 value: f.value.clone().meet(rhs_value),
             });
         }

@@ -519,12 +519,11 @@ impl CUEParser {
     fn PackageName(input: Pair<Rule>) -> ast::Ident {
         CUEParser::identifier(input) // todo: into inner
     }
-    fn ImportDecl(input: Pair<Rule>) -> Result<ast::Declaration, Error> {
+    fn ImportDecl(input: Pair<Rule>) -> Result<Vec<ast::ImportSpec>, Error> {
         input
             .into_inner()
             .map(|i| CUEParser::ImportSpec(i))
             .try_collect()
-            .map(|specs| ast::Declaration::ImportDecl(specs))
     }
     fn ImportSpec(input: Pair<Rule>) -> Result<ast::ImportSpec, Error> {
         Ok(match_pairs!(input.into_inner(), {
@@ -569,8 +568,7 @@ impl CUEParser {
                 .filter_map(|n| match n.as_rule() {
                     Rule::ImportDecl => CUEParser::ImportDecl(n).ok(),
                     _ => None,
-                })
-                .collect(),
+                }).collect(),
             declarations: children
                 .clone()
                 .filter_map(|n| match n.as_rule() {
