@@ -228,6 +228,9 @@ impl CUEParser {
             [multiline_bytes_lit(i)] => Ok(ast::BasicLit::Bytes(i?)),
         })
     }
+    fn string_lit_simple(input: Pair<Rule>) -> Result<ast::Interpolation, Error> {
+        interpolation_elements(input.into_inner().next().unwrap())
+    }
     fn simple_string_lit(input: Pair<Rule>) -> Result<ast::Interpolation, Error> {
         interpolation_elements(input)
     }
@@ -321,11 +324,14 @@ impl CUEParser {
     fn LabelExpr(input: Pair<Rule>) -> Result<ast::Label, Error> {
         Ok(match_pairs!(input.into_inner(), {
             [identifier(i)] => ast::Label::Ident(i, None),
-            [simple_string_lit(s)] => ast::Label::String(s?, None),
-            [AliasExpr(a)] => ast::Label::Bracket(a?),
-            [Expression(e)] => ast::Label::Paren(e?, None),
             [identifier(i), LabelModifier(m)] => ast::Label::Ident(i, Some(m?)),
-            [simple_string_lit(s), LabelModifier(m)] => ast::Label::String(s?, Some(m?)),
+
+            [string_lit_simple(s)] => ast::Label::String(s?, None),
+            [string_lit_simple(s), LabelModifier(m)] => ast::Label::String(s?, Some(m?)),
+
+            [AliasExpr(a)] => ast::Label::Bracket(a?),
+
+            [Expression(e)] => ast::Label::Paren(e?, None),
             [Expression(e), LabelModifier(m)] => ast::Label::Paren(e?, Some(m?)),
         }))
     }
@@ -397,7 +403,7 @@ impl CUEParser {
     fn Selector(input: Pair<Rule>) -> Result<ast::Label, Error> {
         Ok(match_pairs!(input.into_inner(), {
             [identifier(i)] => ast::Label::Ident(i, None),
-            [simple_string_lit(s)] => ast::Label::String(s?, None),
+            [string_lit_simple(s)] => ast::Label::String(s?, None),
         }))
     }
     fn Index(input: Pair<Rule>) -> Result<ast::Expr, Error> {
@@ -866,7 +872,7 @@ fn test_label() {
     assert_eq!(
         parse_single!(Label, "\"quoted\""),
         Ok(ast::Label::String(
-            parse_single!(simple_string_lit, "\"quoted\"").unwrap(), None
+            parse_single!(string_lit_simple, "\"quoted\"").unwrap(), None
         ))
     );
     assert_eq!(
@@ -972,20 +978,20 @@ fn test_txtar_parse() {
         let filename = path.to_str().unwrap();
 
         if
-            // filename.contains("builtins/closed.txtar") // bracket label needs comma
-            // ||
-            filename.contains("compile/labels.txtar") // actual syntax errro
+            false
+            // || filename.contains("builtins/closed.txtar") // bracket label needs comma
+            || filename.contains("compile/labels.txtar") // actual syntax errro
             || filename.contains("compile/erralias.txtar") // actual syntax errro
             // || filename.contains("cycle/constraints.txtar") // bracket label needs comma
             // || filename.contains("cycle/patterns.txtar") // bracket label needs comma
             // || filename.contains("definitions/dynamic.txtar") // parens label needs comma
             // || filename.contains("eval/closedness.txtar") // parens label needs comma
-            || filename.contains("eval/comprehensions.txtar") // string literal inside interpolation
+            // || filename.contains("eval/comprehensions.txtar") // string literal inside interpolation
             // || filename.contains("eval/dynamic_field.txtar") // parens label needs comma
-            || filename.contains("eval/issue295.txtar") // string literal inside interpolation
+            // || filename.contains("eval/issue295.txtar") // string literal inside interpolation
             || filename.contains("export/028.txtar") // literal "#" label ?!
             || filename.contains("export/029.txtar") // literal "#" label ?!
-            || filename.contains("fulleval/017_resolutions_in_struct_comprehension_keys.txtar") // string literal inside interpolation
+            // || filename.contains("fulleval/017_resolutions_in_struct_comprehension_keys.txtar") // string literal inside interpolation
             // || filename.contains("scalars/emptystruct.txtar") // leading ellipsis needs comma
         {
             continue

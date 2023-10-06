@@ -33,16 +33,19 @@ float_lit   = ${ ( decimal_lit ~ ("." ~ fraction) ~ exponent? )
                | ( "." ~ fraction ~ exponent? )
                }
 
-escape_sequence  = @{ "\\" ~ PEEK[0..1] }
+escape_sequence  = @{ "\\" ~  peek_hashes  }
 escaped_char     = ${ escape_sequence ~ ( "a" | "b" | "f" | "n" | "r" | "t" | "v" | "/" | "\\" | "'" | "\"" ) }
 octal_byte_value = ${ escape_sequence ~ octal_digit{3} }
 hex_byte_value   = ${ escape_sequence ~ "x" ~ hex_digit{2} }
 little_u_value   = ${ escape_sequence ~ "u" ~ hex_digit{4} }
 big_u_value      = ${ escape_sequence ~ "U" ~ hex_digit{8} }
 Interpolation    = !{ escape_sequence ~ "(" ~ nl ~ Expression ~ ")" }
-unicode_value    = ${ little_u_value | big_u_value | escaped_char | !PEEK_ALL ~ unicode_char  }
+unicode_value    = ${ little_u_value | big_u_value | escaped_char | !peek_string_end ~ unicode_char  }
 byte_value       = ${ octal_byte_value | hex_byte_value }
 ending_indent    = @{ (" " | "\t")* }
+
+peek_hashes = _{ PEEK[-2..-1] }
+peek_string_end = _ { PEEK ~ peek_hashes }
 
 string_lit = { PUSH("#"*) ~
                           ( multiline_string_lit
@@ -52,6 +55,7 @@ string_lit = { PUSH("#"*) ~
                           )
              ~ POP
              }
+string_lit_simple = { PUSH("") ~ simple_string_lit ~ POP}
 
 simple_string_lit    = ${ PUSH("\"") ~ ( Interpolation | unicode_value )* ~ POP }
 simple_bytes_lit     = ${ PUSH("'")  ~ ( Interpolation | unicode_value | byte_value )* ~ POP }
@@ -77,7 +81,7 @@ Embedding       = { Comprehension | AliasExpr }
 Field           = { Labels ~ nl ~ AliasExpr ~ attribute* }
 Labels          = { ( Label ~ nl ~ ":" ~ nl )+ }
 Label           = { ( identifier ~ !(equal_op) ~ "=" )? ~ nl ~ LabelExpr ~ nl }
-LabelExpr       = { ( (identifier | simple_string_lit) ~ LabelModifier? )
+LabelExpr       = { ( (identifier | string_lit_simple) ~ LabelModifier? )
                   | ( "[" ~ nl ~ AliasExpr ~ nl ~ "]" )
                   | ( "(" ~ nl ~ Expression ~ nl ~ ")" ~ LabelModifier? )
                   }
@@ -103,7 +107,7 @@ OperandName = { identifier | QualifiedIdent }
 
 QualifiedIdent = { PackageName ~ "." ~ identifier }
 
-Selector       = { "." ~ ( identifier | simple_string_lit ) }
+Selector       = { "." ~ ( identifier | string_lit_simple ) }
 Index          = { "[" ~ nl ~ Expression ~ nl ~ "]" }
 Slice          = { "[" ~ nl ~ slice_low? ~ nl ~ ":" ~ nl ~ slice_high? ~ nl ~ "]" }
 slice_low      = { Expression }
@@ -146,7 +150,7 @@ PackageName   = { identifier }
 ImportDecl     = { "import" ~ ( ImportSpec | ("(" ~ nl ~ ImportSpec* ~ nl ~ ")") ) }
 ImportSpec     = { PackageName? ~ ImportPath ~ nlc }
 ImportLocation = { unicode_value* }
-ImportPath     = { PUSH("\"") ~ ImportLocation ~ (":" ~ identifier)? ~ POP }
+ImportPath     = { PUSH("") ~ PUSH("\"") ~ ImportLocation ~ (":" ~ identifier)? ~ POP ~ POP }
 
 SourceFile = { SOI
              ~ (attribute ~ nlc ~ nl)*
