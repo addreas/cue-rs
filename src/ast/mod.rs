@@ -2,9 +2,6 @@ use std::rc::Rc;
 
 pub mod parser;
 
-pub trait Node {
-    fn source(&self) -> &pest::Span;
-}
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Operator {
@@ -42,29 +39,14 @@ pub enum Operator {
     Rem,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct Comment {
-    pub text: Rc<str>,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct CommentGroup {
-    pub doc: bool,
-    pub line: bool,
-
-    pub position: u8,
-    pub comments: Vec<Comment>,
-}
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Ident {
     pub name: Rc<str>,
-    // scope: Node,
-    // node: Node,
 }
 
-impl Ident {
-    pub fn from(name: &str) -> Self {
+impl From<&str> for Ident {
+    fn from(name: &str) -> Self {
         Self {
             name: name.into(),
         }
@@ -91,7 +73,7 @@ pub enum BasicLit {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Interpolation {
     Simple(Rc<str>),
-    Interpolated(Vec<Rc<str>>, Vec<Expr>)
+    Interpolated(Rc<[Rc<str>]>, Rc<[Expr]>),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -104,9 +86,9 @@ pub struct ImportSpec {
 #[derive(Debug, PartialEq, Clone)]
 pub struct SourceFile {
     pub package: Option<Ident>,
-    pub declarations: Vec<Declaration>,
-    pub imports: Vec<Vec<ImportSpec>>,
-    pub attributes: Vec<Attribute>,
+    pub declarations: Rc<[Declaration]>,
+    pub imports: Rc<[Rc<[ImportSpec]>]>,
+    pub attributes: Rc<[Attribute]>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -124,12 +106,12 @@ pub struct Alias {
 pub struct Field {
     pub label: Label,
     pub value: Expr,
-    pub attributes: Option<Vec<Attribute>>,
+    pub attributes: Option<Rc<[Attribute]>>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Comprehension {
-    pub clauses: Vec<Clause>,
+    pub clauses: Rc<[Clause]>,
     pub expr: Expr,
 }
 
@@ -141,12 +123,12 @@ pub struct LetClause {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ListLit {
-    pub elements: Vec<Expr>,
+    pub elements: Rc<[Expr]>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct StructLit {
-    pub elements: Vec<Declaration>,
+    pub elements: Rc<[Declaration]>,
 }
 
 
@@ -177,7 +159,7 @@ impl Label {
     pub fn string(s: Rc<str>) -> Self {
         Self::String(Interpolation::Simple(s), None)
     }
-    pub fn string_interpolation(strings: Vec<Rc<str>>, interpolations: Vec<Expr>) -> Self {
+    pub fn string_interpolation(strings: Rc<[Rc<str>]>, interpolations: Rc<[Expr]>) -> Self {
         Self::String(Interpolation::Interpolated(strings, interpolations), None)
     }
     pub fn paren(x: Expr) -> Self {
@@ -191,7 +173,6 @@ impl Label {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Declaration {
     Bad,
-    CommentGroup(CommentGroup),
     Attribute(Attribute),
     Field(Field),
     Alias(Alias),
@@ -204,9 +185,6 @@ pub enum Declaration {
 impl Declaration {
     pub fn bad() -> Self {
         Self::Bad
-    }
-    pub fn comment_group(cg: CommentGroup) -> Self {
-        Self::CommentGroup(cg)
     }
     pub fn attribute(text: Rc<str>) -> Self {
         Self::Attribute(Attribute { text })
@@ -221,7 +199,7 @@ impl Declaration {
     pub fn alias(ident: Ident, expr: Expr) -> Self {
         Self::Alias(Alias { ident, expr })
     }
-    pub fn comprehension(clauses: Vec<Clause>, expr: Expr) -> Self {
+    pub fn comprehension(clauses: Rc<[Clause]>, expr: Expr) -> Self {
         Self::Comprehension(Comprehension { clauses, expr })
     }
     pub fn ellipsis(inner: Option<Expr>) -> Self {
@@ -292,7 +270,7 @@ pub struct Slice {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Call {
     source: Box<Expr>,
-    args: Vec<Expr>,
+    args: Rc<[Expr]>,
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -319,13 +297,13 @@ impl Expr {
     pub fn basic_string(x: Rc<str>) -> Self {
         Self::BasicLit(BasicLit::String(Interpolation::Simple(x)))
     }
-    pub fn string_interpolation(strings: Vec<Rc<str>>, interpolations: Vec<Expr>) -> Self {
+    pub fn string_interpolation(strings: Rc<[Rc<str>]>, interpolations: Rc<[Expr]>) -> Self {
         Self::BasicLit(BasicLit::String(Interpolation::Interpolated(strings, interpolations)))
     }
     pub fn basic_bytes(x: Rc<str>) -> Self {
         Self::BasicLit(BasicLit::Bytes(Interpolation::Simple(x)))
     }
-    pub fn bytes_interpolation(strings: Vec<Rc<str>>, interpolations: Vec<Expr>) -> Self {
+    pub fn bytes_interpolation(strings: Rc<[Rc<str>]>, interpolations: Rc<[Expr]>) -> Self {
         Self::BasicLit(BasicLit::Bytes(Interpolation::Interpolated(strings, interpolations)))
     }
     pub fn int(x: i64) -> Self {
@@ -343,7 +321,7 @@ impl Expr {
     pub fn alias(ident: Ident, expr: Expr) -> Self {
         Self::Alias(Box::new(Alias { ident, expr }))
     }
-    pub fn comprehension(clauses: Vec<Clause>, expr: Expr) -> Self {
+    pub fn comprehension(clauses: Rc<[Clause]>, expr: Expr) -> Self {
         Self::Comprehension(Box::new(Comprehension { clauses, expr }))
     }
     pub fn ident(name: Rc<str>) -> Self {
@@ -352,10 +330,10 @@ impl Expr {
     pub fn qualified_ident(package: Ident, ident: Ident) -> Self {
         Self::QualifiedIdent(package, ident)
     }
-    pub fn struct_lit(elements: Vec<Declaration>) -> Self {
+    pub fn struct_lit(elements: Rc<[Declaration]>) -> Self {
         Self::Struct(StructLit { elements })
     }
-    pub fn list(elements: Vec<Expr>) -> Self {
+    pub fn list(elements: Rc<[Expr]>) -> Self {
         Self::List(ListLit { elements })
     }
     pub fn ellipsis(inner: Option<Expr>) -> Self {
@@ -398,7 +376,7 @@ impl Expr {
             high: high.map(|h| Box::new(h)),
         })
     }
-    pub fn call(source: Expr, args: Vec<Expr>) -> Self {
+    pub fn call(source: Expr, args: Rc<[Expr]>) -> Self {
         Self::Call(Call {
             source: Box::new(source),
             args,

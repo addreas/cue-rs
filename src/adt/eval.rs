@@ -38,14 +38,13 @@ fn test_source_file() {
     assert_eq!(eval_str("a: 1, b: 2"), cue_val!({a: (1), b: (2)}));
 }
 
-pub fn eval_decls(decls: Vec<ast::Declaration>, scope: Rc<Scope>) -> value::Value {
-    for decl in decls {
+pub fn eval_decls(decls: Rc<[ast::Declaration]>, scope: Rc<Scope>) -> value::Value {
+    for decl in decls.iter() {
         match decl {
             ast::Declaration::Bad => todo!(),
-            ast::Declaration::CommentGroup(_) => todo!(),
             ast::Declaration::Attribute(_) => todo!(),
             ast::Declaration::Field(f) => {
-                let field = eval_field(f, scope.clone());
+                let field = eval_field(f.clone(), scope.clone());
                 if let Some(existing) = scope.items.borrow().get(&field.label) {
                     existing.replace_with(|e| e.clone().meet(field.value.clone()));
                 } else {
@@ -72,7 +71,7 @@ pub fn eval_field(field: ast::Field, scope: Rc<Scope>) -> value::Field {
     let (name, modifier) = match field.label {
         ast::Label::Ident(i, m) => (i.name, m),
         ast::Label::String(ast::Interpolation::Simple(s,), m) => (s, m),
-        ast::Label::String(ast::Interpolation::Interpolated(_, _), m) => todo!(),
+        ast::Label::String(ast::Interpolation::Interpolated(_, _), _m) => todo!(),
         ast::Label::Alias(..) => todo!(),
         ast::Label::Paren(e, m) => match eval_expr(e, scope.clone()) {
             value::Value::String(value::Basic::Value(s)) => (s, m),

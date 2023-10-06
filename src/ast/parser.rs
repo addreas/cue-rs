@@ -7,7 +7,7 @@ use pest::{
 use std::{vec, rc::Rc};
 use std::result::Result;
 
-use crate::{ast, txtar};
+use crate::ast;
 
 #[derive(Parser)]
 #[grammar = "./ast/cue.pest"]
@@ -287,14 +287,15 @@ impl CUEParser {
     }
     fn Field(input: Pair<Rule>) -> Result<ast::Field, Error> {
         let mut inner = input.into_inner();
-        let mut ls = CUEParser::Labels(inner.next().unwrap())?;
+        let ls = CUEParser::Labels(inner.next().unwrap())?;
         let value = CUEParser::AliasExpr(inner.next().unwrap())?;
 
-        let attributes: Vec<_> = inner.map(|p| CUEParser::attribute(p)).collect();
+        let attributes: Rc<_> = inner.map(|p| CUEParser::attribute(p)).collect();
 
-        let mut lsi = ls.iter_mut();
+        let (last, rest) = ls.split_last().unwrap();
+
         let init = ast::Field {
-            label: lsi.next().expect("nonempty list").clone(),
+            label: last.clone(),
             value: value,
             attributes: {
                 match attributes.len() {
@@ -304,10 +305,11 @@ impl CUEParser {
             },
         };
 
-        Ok(lsi.rfold(init, |acc, label| ast::Field {
+        // for multiple labels `a: b: c: "d"` we need to wrap init which represents `{c: "d"}` in a number of single field structs
+        Ok(rest.iter().rfold(init, |acc, label| ast::Field {
             label: label.clone(),
             value: ast::Expr::Struct(ast::StructLit {
-                elements: vec![ast::Declaration::Field(acc)],
+                elements: [ast::Declaration::Field(acc)].into(),
             }),
             attributes: None,
         }))
@@ -356,11 +358,11 @@ impl CUEParser {
     fn ListLit(input: Pair<Rule>) -> Result<ast::ListLit, Error> {
         let elements = match input.into_inner().next() {
             Some(l) => CUEParser::ElementList(l)?,
-            None => vec![],
+            None => [].into(),
         };
         Ok(ast::ListLit { elements })
     }
-    fn ElementList(input: Pair<Rule>) -> Result<Vec<ast::Expr>, Error> {
+    fn ElementList(input: Pair<Rule>) -> Result<Rc<[ast::Expr]>, Error> {
         input
             .into_inner()
             .map(|p| {
@@ -425,7 +427,7 @@ impl CUEParser {
     fn Argument(input: Pair<Rule>) -> Result<ast::Expr, Error> {
         CUEParser::Expression(input) // todo: into inner?
     }
-    fn Arguments(input: Pair<Rule>) -> Result<Vec<ast::Expr>, Error> {
+    fn Arguments(input: Pair<Rule>) -> Result<Rc<[ast::Expr]>, Error> {
         input.into_inner().map(|p| CUEParser::Argument(p)).collect()
     }
     fn Expression(input: Pair<Rule>) -> Result<ast::Expr, Error> {
@@ -472,7 +474,7 @@ impl CUEParser {
             }
         }))
     }
-    fn Clauses(input: Pair<Rule>) -> Result<Vec<ast::Clause>, Error> {
+    fn Clauses(input: Pair<Rule>) -> Result<Rc<[ast::Clause]>, Error> {
         input
             .into_inner()
             .map(|p| {
@@ -525,7 +527,7 @@ impl CUEParser {
     fn PackageName(input: Pair<Rule>) -> ast::Ident {
         CUEParser::identifier(input) // todo: into inner
     }
-    fn ImportDecl(input: Pair<Rule>) -> Result<Vec<ast::ImportSpec>, Error> {
+    fn ImportDecl(input: Pair<Rule>) -> Result<Rc<[ast::ImportSpec]>, Error> {
         input
             .into_inner()
             .map(|i| CUEParser::ImportSpec(i))
@@ -629,11 +631,10 @@ fn interpolation_elements(input: Pair<Rule>) -> Result<ast::Interpolation, Error
 
     assert_eq!(expr_parts.len(), string_parts.len() - 1);
 
-    return Ok(if string_parts.len() == 1 {
-        ast::Interpolation::Simple(string_parts[0].clone())
-    } else {
-        ast::Interpolation::Interpolated(string_parts, expr_parts)
-    });
+    Ok(match &string_parts[..] {
+        [single] => ast::Interpolation::Simple(single.clone()),
+        multiple => ast::Interpolation::Interpolated(multiple.into(), expr_parts.into())
+    })
 }
 
 fn parse_digits_radix(input: Pair<Rule>, radix: u32) -> Result<char, String> {
@@ -891,44 +892,48 @@ fn test_label() {
 }
 #[test]
 fn test_struct() {
-    let field = |label, value| {
-        ast::Declaration::Field(ast::Field {
-            attributes: None,
-            label,
-            value,
+    let struct_lit = |fields: Vec<_>| {
+        ast::Expr::Struct(ast::StructLit{
+            elements: fields.into_iter().map(|f| ast::Declaration::Field(f)).collect(),
         })
+    };
+
+    let field = |label, value| {
+        ast::Field {
+            attributes: None,
+            label: parse_single!(Label, label).unwrap(),
+            value: value,
+        }
     };
 
     assert_eq!(
         parse_single!(
-            StructLit,
+            Expression,
             r#"{
     identifier: 0,
     "quoted": 1,
     (parenthesis): 2,
     [brackets=string]: 3,
 }"#
-        ),
-        Ok(ast::StructLit {
-            elements: vec![
-                field(
-                    parse_single!(Label, "identifier").unwrap(),
-                    parse_single!(Expression, "0").unwrap()
-                ),
-                field(
-                    parse_single!(Label, "\"quoted\"").unwrap(),
-                    parse_single!(Expression, "1").unwrap(),
-                ),
-                field(
-                    parse_single!(Label, "(parenthesis)").unwrap(),
-                    parse_single!(Expression, "2").unwrap(),
-                ),
-                field(
-                    parse_single!(Label, "[brackets=string]").unwrap(),
-                    parse_single!(Expression, "3").unwrap(),
-                ),
-            ]
-        })
+        ).unwrap(),
+        struct_lit(vec![
+            field("identifier", parse_expr("0").unwrap()),
+            field("\"quoted\"", parse_expr("1").unwrap()),
+            field("(parenthesis)", parse_expr("2").unwrap()),
+            field("[brackets=string]", parse_expr("3").unwrap()),
+        ])
+    );
+
+    assert_eq!(
+        parse_single!(Expression, r#"{ a: b: c: "d" }"#).unwrap(),
+        struct_lit(vec![
+            field("a", struct_lit(vec![
+                field("b", struct_lit(vec![
+                    field("c", parse_expr("\"d\"").unwrap())
+                ]))
+            ])
+            )
+        ])
     );
 }
 
@@ -997,7 +1002,7 @@ fn test_txtar_parse() {
             continue
         }
 
-        let txtar = txtar::parse_file(filename).expect("txtarparse is infallible, right?");
+        let txtar = crate::txtar::parse_file(filename).expect("txtarparse is infallible, right?");
 
         if let Some(cue_input) = txtar.get_section("in.cue") {
             // println!("{}: in.cue:\n{}", filename, cue_input);
