@@ -10,11 +10,11 @@ use crate::match_basic;
 pub enum Value {
     Top,
 
-    Disjunction(Vec<Rc<Value>>),
-    Conjunction(Vec<Rc<Value>>),
+    Disjunction(Rc<[Rc<Value>]>),
+    Conjunction(Rc<[Rc<Value>]>),
 
-    Struct(Vec<Field>),
-    List(Vec<Rc<Value>>),
+    Struct(Rc<[Field]>),
+    List(Rc<[Rc<Value>]>),
 
     String(Basic<Rc<str>>),
     Bytes(Basic<Rc<str>>),
@@ -95,8 +95,8 @@ impl Value {
             (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs.clone(), rhs.clone()).into(),
             (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs.clone(), rhs.clone()).into(),
 
-            (Self::Struct(fields), _) if fields.iter().all(|f| f.label.hidden | f.label.definition) => Self::Disjunction(vec![Self::Struct(fields.clone()).into(), other]).into(),
-            (_, Self::Struct(fields)) if fields.iter().all(|f| f.label.hidden | f.label.definition) => Self::Disjunction(vec![Self::Struct(fields.clone()).into(), self]).into(),
+            (Self::Struct(fields), _) if fields.iter().all(|f| f.label.hidden | f.label.definition) => Self::Disjunction([Self::Struct(fields.clone()).into(), other].into()).into(),
+            (_, Self::Struct(fields)) if fields.iter().all(|f| f.label.hidden | f.label.definition) => Self::Disjunction([Self::Struct(fields.clone()).into(), self].into()).into(),
 
             (Self::Disjunction(lhs), _) => Self::meet_disjunction(lhs.clone(), other),
             (_, Self::Disjunction(rhs)) => Self::meet_disjunction(rhs.clone(), self),
@@ -132,7 +132,7 @@ impl Value {
             (Self::Disjunction(lhs), _) => Self::join_disjunction(lhs.clone(), other).into(),
             (_, Self::Disjunction(rhs)) => Self::join_disjunction(rhs.clone(), self).into(),
 
-            (_, _) => Self::Disjunction(vec![self, other]).into(),
+            (_, _) => Self::Disjunction([self, other].into()).into(),
         }
     }
 
@@ -159,10 +159,10 @@ impl Value {
                     rel_op(b, *opb, a),
                 ) {
                     (true, true, true, true) => construct(Basic::Value(a.clone())),
-                    (true, true, _, _) => Value::Conjunction(vec![
+                    (true, true, _, _) => Value::Conjunction([
                         construct(Basic::Relation(*opa, a.clone())).into(),
                         construct(Basic::Relation(*opb, b.clone())).into(),
-                    ]),
+                    ].into()),
                     (true, false, _, _) if a != b => construct(Basic::Relation(*opa, a.clone())),
                     (false, true, _, _) if a != b => construct(Basic::Relation(*opb, b.clone())),
                     (_, _, _, _) => {
@@ -210,10 +210,10 @@ impl Value {
                     rel_op(b, *opb, a),
                 ) {
                     (true, true, _, _) => construct(Basic::Type),
-                    (false, false, _, _) if a != b => Value::Disjunction(vec![
+                    (false, false, _, _) if a != b => Value::Disjunction([
                         construct(Basic::Relation(*opa, a.clone())).into(),
                         construct(Basic::Relation(*opb, b.clone())).into(),
-                    ]),
+                    ].into()),
                     (false, true, _, _) if a != b => construct(Basic::Relation(*opa, a.clone())),
                     (true, false, _, _) if a != b => construct(Basic::Relation(*opb, b.clone())),
                     (_, _, _, _) => {
@@ -233,7 +233,7 @@ impl Value {
                 }
             }
 
-            (_, _) => Self::Disjunction(vec![construct(lhs).into(), construct(rhs).into()]),
+            (_, _) => Self::Disjunction([construct(lhs).into(), construct(rhs).into()].into()),
         }
     }
 
@@ -264,7 +264,7 @@ impl Value {
         }
     }
 
-    fn meet_structs(lhs: Vec<Field>, rhs: Vec<Field>) -> Value {
+    fn meet_structs(lhs: Rc<[Field]>, rhs: Rc<[Field]>) -> Value {
         let mut fields: Vec<Field> = vec![];
         for f in lhs.iter() {
             let rhs_value = rhs
@@ -283,43 +283,42 @@ impl Value {
             fields.push(f.clone())
         }
 
-        Self::Struct(fields)
+        Self::Struct(fields.into())
     }
 
-    fn meet_lists(lhs: Vec<Rc<Value>>, rhs: Vec<Rc<Value>>) -> Value {
+    fn meet_lists(lhs: Rc<[Rc<Value>]>, rhs: Rc<[Rc<Value>]>) -> Value {
         if lhs.len() != rhs.len() {
             Self::Bottom
         } else {
             Self::List(
                 lhs.into_iter()
                     .zip(rhs.into_iter())
-                    .map(|(l, r)| l.meet(r))
+                    .map(|(l, r)| l.clone().meet(r.clone()))
                     .collect(),
             )
         }
     }
 
-    fn meet_disjunction(items: Vec<Rc<Value>>, operand: Rc<Value>) -> Rc<Value> {
-        let res: Vec<_> = items.into_iter().map(|i| i.meet(operand.clone())).collect();
+    fn meet_disjunction(items: Rc<[Rc<Value>]>, operand: Rc<Value>) -> Rc<Value> {
+        let res: Rc<[_]> = items.into_iter().map(|i| i.clone().meet(operand.clone())).collect();
 
-        let non_bottoms: Vec<_> = res.into_iter().filter(|i| !i.is_bottom()).collect();
+        let non_bottoms: Rc<[_]> = res.into_iter().filter(|i| !i.is_bottom()).map(|i| i.clone()).collect();
 
-        match non_bottoms.as_slice() {
+        match &non_bottoms[..] {
             [] => Self::Bottom.into(),
             [i] => i.clone(),
-            _ => Self::Disjunction(non_bottoms).into(),
+            items => Self::Disjunction(items.into()).into(),
         }
     }
 
-    fn join_disjunction(mut existing: Vec<Rc<Value>>, extension: Rc<Value>) -> Value {
+    fn join_disjunction(existing: Rc<[Rc<Value>]>, extension: Rc<Value>) -> Value {
         for val in existing.iter() {
             if extension.clone() == *val {
                 return Self::Disjunction(existing);
             }
         }
 
-        existing.push(extension);
-        Self::Disjunction(existing)
+        Self::Disjunction([existing, [extension].into()].concat().into())
     }
 
     pub fn is_bottom(self: &Self) -> bool {

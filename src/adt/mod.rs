@@ -63,11 +63,11 @@ macro_rules! cue_val {
     ($op:tt $a:literal) => { crate::adt::value::Value::from((crate::rel_op!($op), $a)) };
     ($op:tt~ $a:literal) => { crate::adt::value::Value::from((crate::rel_op!($op~), $a)) };
 
-    ( $(($($a:tt)+))&+ ) => { Value::Conjunction(vec![$( crate::cue_val!($($a)+).into() ),+ ]) };
-    ( $(($($a:tt)+))|+ ) => { Value::Disjunction(vec![$( crate::cue_val!($($a)+).into() ),+ ]) };
+    ( $(($($a:tt)+))&+ ) => { Value::Conjunction([$( crate::cue_val!($($a)+).into() ),+ ].into()) };
+    ( $(($($a:tt)+))|+ ) => { Value::Disjunction([$( crate::cue_val!($($a)+).into() ),+ ].into()) };
 
     ({ $($k:ident: ($($v:tt)+)),* }) => {
-        crate::adt::value::Value::Struct(vec![
+        crate::adt::value::Value::Struct([
             $(crate::adt::value::Field {
                 label: crate::adt::value::Label {
                     name: stringify!($k).into(),
@@ -77,13 +77,13 @@ macro_rules! cue_val {
                 },
                 value: crate::cue_val!($($v)+).into(),
             }),*
-        ])
+        ].into())
     };
 
     ([ $( ($($v:tt)+) ),* ]) => {
-        Value::List(vec![
+        Value::List([
             $( crate::cue_val!($($v)+).into() ),*
-        ])
+        ].into())
     };
 }
 
