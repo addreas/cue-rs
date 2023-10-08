@@ -43,12 +43,27 @@ pub enum Operator {
 #[derive(Debug, PartialEq, Clone)]
 pub struct Ident {
     pub name: Rc<str>,
+    pub kind: Option<IdentKind>,
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum IdentKind {
+    Hidden,
+    Definition,
+    HiddenDefinition
 }
 
 impl From<&str> for Ident {
     fn from(name: &str) -> Self {
+        let (kind, name) = match name {
+            s if s.starts_with("_#") => (Some(IdentKind::HiddenDefinition), &s[2..]),
+            s if s.starts_with("_") => (Some(IdentKind::Hidden), &s[1..]),
+            s if s.starts_with("#") => (Some(IdentKind::Definition), &s[1..]),
+            s => (None, s),
+        };
         Self {
             name: name.into(),
+            kind,
         }
     }
 }
@@ -135,13 +150,13 @@ pub struct StructLit {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Label {
-    // TODO: optionals
     Ident(Ident, Option<LabelModifier>),
-    Alias(Ident, Box<Label>, Option<LabelModifier>), // todo: better representation of this?
+    Alias(Ident, Box<Label>),
     String(Interpolation, Option<LabelModifier>),
     Paren(Expr, Option<LabelModifier>),
     Bracket(Expr),
 }
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum LabelModifier {
@@ -154,7 +169,7 @@ impl Label {
         Self::Ident(x, None)
     }
     pub fn alias(ident: Ident, expr: Label) -> Self {
-        Self::Alias(ident, Box::new(expr), None)
+        Self::Alias(ident, Box::new(expr))
     }
     pub fn string(s: Rc<str>) -> Self {
         Self::String(Interpolation::Simple(s), None)
@@ -325,7 +340,7 @@ impl Expr {
         Self::Comprehension(Box::new(Comprehension { clauses, expr }))
     }
     pub fn ident(name: Rc<str>) -> Self {
-        Self::Ident(Ident { name })
+        Self::Ident(Ident::from(name.as_ref()))
     }
     pub fn qualified_ident(package: Ident, ident: Ident) -> Self {
         Self::QualifiedIdent(package, ident)

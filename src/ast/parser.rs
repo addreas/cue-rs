@@ -96,9 +96,7 @@ fn test_pairs() {
 
 impl CUEParser {
     fn identifier(input: Pair<Rule>) -> ast::Ident {
-        ast::Ident {
-            name: input.as_str().into(),
-        }
+        ast::Ident::from(input.as_str())
     }
     fn unicode_char(input: Pair<Rule>) -> Result<char, Error> {
         input
@@ -867,7 +865,8 @@ fn test_label() {
     assert_eq!(
         parse_single!(Label, "identifier"),
         Ok(ast::Label::Ident(ast::Ident {
-            name: "identifier".into()
+            name: "identifier".into(),
+            kind: None,
         }, None))
     );
     assert_eq!(
@@ -879,7 +878,8 @@ fn test_label() {
     assert_eq!(
         parse_single!(Label, "(parenthesis)"),
         Ok(ast::Label::Paren(ast::Expr::Ident(ast::Ident {
-            name: "parenthesis".into()
+            name: "parenthesis".into(),
+            kind: None
         }), None))
     );
     assert_eq!(

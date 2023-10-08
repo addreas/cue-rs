@@ -3,6 +3,7 @@ use std::{fmt::Debug, fmt::Display, rc::Rc};
 use regex::Regex;
 
 use super::op::RelOp;
+use crate::ast::{IdentKind, LabelModifier};
 use crate::match_basic;
 
 
@@ -17,7 +18,9 @@ pub enum Value {
     List(Rc<[Rc<Value>]>),
 
     String(Basic<Rc<str>>),
+    // StringInterpolation(Rc<[Rc<str>]>, Rc<[Rc<Value>]>),
     Bytes(Basic<Rc<str>>),
+    // BytesInterpolation(Rc<[Rc<str>]>, Rc<[Rc<Value>]>),
 
     Float(Basic<f64>),
     Int(Basic<i64>),
@@ -36,13 +39,12 @@ pub enum Basic<T> {
     Value(T),
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct Label {
-    pub name: Rc<str>,
-    pub optional: Option<bool>,
-    pub definition: bool,
-    pub hidden: bool,
+#[derive(Debug, PartialEq, Clone)]
+pub enum Label {
+    Single(Rc<str>, Option<IdentKind>, Option<LabelModifier>),
+    Bulk(Rc<Value>),
 }
+
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Field {
@@ -50,20 +52,35 @@ pub struct Field {
     pub value: Rc<Value>,
 }
 
+impl Field {
+    fn visible(&self) -> bool {
+        match self.label {
+            Label::Single(_, None, None) => true,
+            Label::Single(_, None, Some(LabelModifier::Required)) => true,
+            _ => false,
+        }
+    }
+}
+
 impl Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let definition = if self.label.definition { "#" } else { "" };
-        let optional = match self.label.optional {
-            None => "",
-            Some(true) => "?",
-            Some(false) => "!",
-        };
-        let hidden = if self.label.hidden { "_" } else { "" };
-        write!(
-            f,
-            "{hidden}{definition}{}{optional}: {}",
-            self.label.name, self.value
-        )
+        match self.label.clone() {
+            Label::Single(n, label_type, label_modifier) => {
+                let prefix = match label_type {
+                    None => "",
+                    Some(IdentKind::Hidden) => "_",
+                    Some(IdentKind::Definition) => "#",
+                    Some(IdentKind::HiddenDefinition) => "_#",
+                };
+                let postfix = match label_modifier {
+                    None => "",
+                    Some(LabelModifier::Optional) => "?",
+                    Some(LabelModifier::Required) => "!",
+                };
+                write!(f, "{}{}{}: {}", prefix, n, postfix, self.value)
+            },
+            Label::Bulk(expr) => write!(f, "[{}]: {}", expr, self.value),
+        }
     }
 }
 
@@ -95,8 +112,8 @@ impl Value {
             (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs.clone(), rhs.clone()).into(),
             (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs.clone(), rhs.clone()).into(),
 
-            (Self::Struct(fields), _) if fields.iter().all(|f| f.label.hidden | f.label.definition) => Self::Disjunction([Self::Struct(fields.clone()).into(), other].into()).into(),
-            (_, Self::Struct(fields)) if fields.iter().all(|f| f.label.hidden | f.label.definition) => Self::Disjunction([Self::Struct(fields.clone()).into(), self].into()).into(),
+            (Self::Struct(fields), _) if fields.iter().all(Field::visible) => Self::Disjunction([Self::Struct(fields.clone()).into(), other].into()).into(),
+            (_, Self::Struct(fields)) if fields.iter().all(Field::visible) => Self::Disjunction([Self::Struct(fields.clone()).into(), self].into()).into(),
 
             (Self::Disjunction(lhs), _) => Self::meet_disjunction(lhs.clone(), other),
             (_, Self::Disjunction(rhs)) => Self::meet_disjunction(rhs.clone(), self),
@@ -269,7 +286,7 @@ impl Value {
         for f in lhs.iter() {
             let rhs_value = rhs
                 .iter()
-                .find(|ff| ff.label == f.label)
+                .find(|ff| ff.label == f.label) // TODO: consider bulk fields
                 .map_or(Self::Top.into(), |ff| ff.value.clone());
             fields.push(Field {
                 label: f.label.clone(),
@@ -277,7 +294,7 @@ impl Value {
             });
         }
         for f in rhs.iter() {
-            if lhs.iter().any(|ff| ff.label == f.label) {
+            if lhs.iter().any(|ff| ff.label == f.label) { // TODO: consider bulk fields
                 continue;
             }
             fields.push(f.clone())
