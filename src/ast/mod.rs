@@ -19,12 +19,12 @@ pub enum Operator {
     And, // &&
     Or,  // ||
 
-    Bind,    // =
+    // Bind,    // =
     Equal,   // ==
     Less,    // <
     Greater, // >
     Not,     // !
-    Arrow,   // <-
+    // Arrow,   // <-
 
     NotEqual,     // !=
     LessEqual,    // <=
@@ -40,13 +40,13 @@ pub enum Operator {
 }
 
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Ident {
     pub name: Rc<str>,
     pub kind: Option<IdentKind>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum IdentKind {
     Hidden,
     Definition,
@@ -252,43 +252,6 @@ impl Clause {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct UnaryExpr {
-    op: Operator,
-    child: Box<Expr>,
-}
-#[derive(Debug, PartialEq, Clone)]
-pub struct BinaryExpr {
-    lhs: Box<Expr>,
-    op: Operator,
-    rhs: Box<Expr>,
-}
-#[derive(Debug, PartialEq, Clone)]
-pub struct Parens {
-    inner: Box<Expr>,
-}
-#[derive(Debug, PartialEq, Clone)]
-pub struct Selector {
-    source: Box<Expr>,
-    field: Box<Label>,
-}
-#[derive(Debug, PartialEq, Clone)]
-pub struct Index {
-    source: Box<Expr>,
-    index: Box<Expr>,
-}
-#[derive(Debug, PartialEq, Clone)]
-pub struct Slice {
-    source: Box<Expr>,
-    low: Option<Box<Expr>>,
-    high: Option<Box<Expr>>,
-}
-#[derive(Debug, PartialEq, Clone)]
-pub struct Call {
-    source: Box<Expr>,
-    args: Rc<[Expr]>,
-}
-
-#[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     Bad,
     Alias(Box<Alias>),
@@ -299,13 +262,13 @@ pub enum Expr {
     Struct(StructLit),
     List(ListLit),
     Ellipsis(Box<Ellipsis>),
-    UnaryExpr(UnaryExpr),
-    BinaryExpr(BinaryExpr),
-    Parens(Parens),
-    Selector(Selector),
-    Index(Index),
-    Slice(Slice),
-    Call(Call),
+    UnaryExpr(Operator, Box<Expr>),
+    BinaryExpr(Box<Expr>, Operator, Box<Expr>),
+    Parens(Box<Expr>),
+    Selector(Box<Expr>, Box<Label>),
+    Index(Box<Expr>, Box<Expr>),
+    Slice(Box<Expr>, Option<Box<Expr>>, Option<Box<Expr>>),
+    Call(Box<Expr>, Rc<[Expr]>),
 }
 
 impl Expr {
@@ -355,47 +318,25 @@ impl Expr {
         Self::Ellipsis(Box::new(Ellipsis { inner }))
     }
     pub fn unary_expr<'a>(op: Operator, child: Expr) -> Self {
-        Self::UnaryExpr(UnaryExpr {
-            op,
-            child: Box::new(child),
-        })
+        Self::UnaryExpr(op, Box::new(child))
     }
     pub fn binary_expr(lhs: Expr, op: Operator, rhs: Expr) -> Self {
-        Self::BinaryExpr(BinaryExpr {
-            lhs: Box::new(lhs),
-            op,
-            rhs: Box::new(rhs),
-        })
+        Self::BinaryExpr(Box::new(lhs), op, Box::new(rhs))
     }
     pub fn parens(inner: Expr) -> Self {
-        Self::Parens(Parens {
-            inner: Box::new(inner),
-        })
+        Self::Parens(Box::new(inner))
     }
     pub fn selector(source: Expr, field: Label) -> Self {
-        Self::Selector(Selector {
-            source: Box::new(source),
-            field: Box::new(field),
-        })
+        Self::Selector(Box::new(source), Box::new(field))
     }
     pub fn index(source: Expr, index: Expr) -> Self {
-        Self::Index(Index {
-            source: Box::new(source),
-            index: Box::new(index),
-        })
+        Self::Index(Box::new(source), Box::new(index))
     }
     pub fn slice(source: Expr, low: Option<Expr>, high: Option<Expr>) -> Self {
-        Self::Slice(Slice {
-            source: Box::new(source),
-            low: low.map(|l| Box::new(l)),
-            high: high.map(|h| Box::new(h)),
-        })
+        Self::Slice(Box::new(source), low.map(|l| Box::new(l)), high.map(|h| Box::new(h)))
     }
     pub fn call(source: Expr, args: Rc<[Expr]>) -> Self {
-        Self::Call(Call {
-            source: Box::new(source),
-            args,
-        })
+        Self::Call(Box::new(source), args)
     }
 }
 

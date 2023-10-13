@@ -444,10 +444,7 @@ impl CUEParser {
                     Rule::default_op => ast::Operator::Default,
                     _ => unreachable!("unknown prefix rule"),
                 };
-                return Ok(ast::Expr::UnaryExpr(ast::UnaryExpr {
-                    op: op,
-                    child: Box::new(rhs?),
-                }));
+                return Ok(ast::Expr::unary_expr(op, rhs?));
             })
             .map_infix(|lhs, op, rhs| Ok(ast::Expr::binary_expr(lhs?, binary_op(op)?, rhs?)))
             .map_postfix(|lhs, op| {

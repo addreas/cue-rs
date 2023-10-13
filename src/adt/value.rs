@@ -631,14 +631,14 @@ fn test_struct_infimum() {
     use crate::assert_cue;
 
     assert_cue!(({}) & ({}) == ({}));
-    assert_cue!(({}) & ({a: (1), b: (2)}) == ({a: (1), b: (2)}));
-    assert_cue!(({a: (1)}) & ({b: (2)}) == ({a: (1), b: (2)}));
-    assert_cue!(({a: (1), b: (2)}) & ({}) == ({a: (1), b: (2)}));
-    assert_cue!(({a: (int)}) & ({a: (1)}) == ({a: (1)}));
-    assert_cue!(({a: (float)}) & ({a: (1.0)}) == ({a: (1.0)}));
-    assert_cue!(({a: (string)}) & ({a: ("hello")}) == ({a: ("hello")}));
-    assert_cue!(({a: (int)}) & ({a: ("hello")}) == ({a: (_|_)}));
-    assert_cue!(({a: (int)}) & ({b: ({c: ("d")})}) == ({a: (int), b: ({c: ("d")})}));
+    assert_cue!(({}) & ({(a): (1), (b): (2)}) == ({(a): (1), (b): (2)}));
+    assert_cue!(({(a): (1)}) & ({(b): (2)}) == ({(a): (1), (b): (2)}));
+    assert_cue!(({(a): (1), (b): (2)}) & ({}) == ({(a): (1), (b): (2)}));
+    assert_cue!(({(a): (int)}) & ({(a): (1)}) == ({(a): (1)}));
+    assert_cue!(({(a): (float)}) & ({(a): (1.0)}) == ({(a): (1.0)}));
+    assert_cue!(({(a): (string)}) & ({(a): ("hello")}) == ({(a): ("hello")}));
+    assert_cue!(({(a): (int)}) & ({(a): ("hello")}) == ({(a): (_|_)}));
+    assert_cue!(({(a): (int)}) & ({(b): ({(c): ("d")})}) == ({(a): (int), (b): ({(c): ("d")})}));
 }
 
 #[test]
@@ -674,9 +674,9 @@ fn test_format() {
     assert_eq!(format!("{}", cue_val!(("hello"))), "\"hello\"");
     assert_eq!(format!("{}", cue_val!((!="hello"))), "!=\"hello\"");
     assert_eq!(format!("{}", cue_val!(({}))), "{}");
-    assert_eq!(format!("{}", cue_val!(({a: (1)}))), "{a: 1}");
+    assert_eq!(format!("{}", cue_val!(({(a): (1)}))), "{a: 1}");
     assert_eq!(
-        format!("{}", cue_val!(({a: (1), b: ({c: ("d")})}))),
+        format!("{}", cue_val!(({(a): (1), (b): ({(c): ("d")})}))),
         "{a: 1,\nb: {c: \"d\"}}"
     );
     assert_eq!(format!("{}", cue_val!(([]))), "[]");

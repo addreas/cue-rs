@@ -48,6 +48,7 @@ macro_rules! match_basic {
 
 #[macro_export]
 macro_rules! cue_val {
+
     (_) => { crate::adt::value::Value::Top };
     (_|_) => { crate::adt::value::Value::Bottom };
 
@@ -66,10 +67,13 @@ macro_rules! cue_val {
     ( $(($($a:tt)+))&+ ) => { crate::adt::value::Value::Conjunction([$( crate::cue_val!($($a)+).into() ),+ ].into()) };
     ( $(($($a:tt)+))|+ ) => { crate::adt::value::Value::Disjunction([$( crate::cue_val!($($a)+).into() ),+ ].into()) };
 
-    ({ $($k:ident: ($($v:tt)+)),* }) => {
+    (@label [ $($val:tt)+ ]) => { crate::adt::value::Label::Bulk(crate::cue_val!( $($val)+ ).into()) };
+    (@label $k:ident) => { crate::adt::value::Label::Single(stringify!($k).into(), None, None) };
+    (@label $k:literal) => { crate::adt::value::Label::Single($k.into(), None, None) };
+    ({ $( ($($k:tt)+) : ($($v:tt)+)),* }) => {
         crate::adt::value::Value::Struct([
             $(crate::adt::value::Field {
-                label: crate::adt::value::Label::Single(stringify!($k).into(), None, None),
+                label: crate::cue_val!(@label $($k)+),
                 value: crate::cue_val!($($v)+).into(),
             }),*
         ].into())
