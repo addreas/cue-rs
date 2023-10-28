@@ -9,6 +9,8 @@
 pub mod adt;
 // pub mod adt_old;
 pub mod ast;
+pub mod parser;
+pub mod value;
 pub mod txtar;
 
 extern crate pest;

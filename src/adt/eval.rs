@@ -1,107 +1,79 @@
-use super::value;
-use crate::{ast, cue_val};
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use crate::{
+    adt::scope::{MutableScope, Scope},
+    ast, cue_val,
+    value::{Basic, Field, Label, Value},
+};
+use std::{cell::RefCell, rc::Rc};
 
-#[derive(Clone, Default)]
-pub struct Scope {
-    parent: Option<Rc<Scope>>, // TODO: can parent scope be made immutable despite refcells? can refcells be avoided?
-    items: RefCell<HashMap<ast::Ident, Rc<value::Value>>>,
-}
-
-impl Scope {
-    fn as_parent(self: Rc<Self>) -> Rc<Self> {
-        Rc::new(Self {
-            parent: Some(self),
-            items: Default::default(),
-        })
-    }
-
-    fn set_val(&self, key: ast::Ident, value: Rc<value::Value>) {
-        self.items
-            .borrow_mut()
-            .entry(key)
-            .and_modify(|v| *v = v.clone().meet(value.clone()))
-            .or_insert(value);
-    }
-
-    fn deref(&self, key: &ast::Ident) -> Option<Rc<value::Value>> {
-        let items = self.items.borrow();
-        if items.contains_key(key) {
-            items.get(key).map(|v| v.clone())
-        } else if let Some(p) = self.parent.clone() {
-            p.deref(key)
-        } else {
-            None
-        }
-    }
-}
-
-pub fn eval(source: ast::SourceFile) -> Rc<value::Value> {
-    let scope = Rc::new(Scope::default());
+pub fn eval(source: ast::SourceFile) -> Rc<Value> {
+    let scope = Rc::new(RefCell::new(Scope::default()));
     eval_decls(source.declarations, scope)
 }
 
-pub fn eval_decls(decls: Rc<[ast::Declaration]>, scope: Rc<Scope>) -> Rc<value::Value> {
-    let mut current_value = Rc::from(value::Value::Top);
+pub fn eval_decls(decls: Rc<[ast::Declaration]>, scope: MutableScope) -> Rc<Value> {
+    let mut current_value = Rc::from(Value::Top);
     for decl in decls.into_iter() {
         match decl {
-            ast::Declaration::Bad => todo!(),
             ast::Declaration::Attribute(_) => todo!(),
             ast::Declaration::Field(f) => {
-                let field = eval_field(&f, scope.clone().as_parent());
+                // TODO: laziness?
+                let field = eval_field(&f, scope.clone());
 
-                current_value = current_value.meet(value::Value::Struct([field].into()).into());
+                current_value = current_value.meet(Value::Struct([field].into()).into());
             }
             ast::Declaration::Alias(_) => todo!(),
             ast::Declaration::Comprehension(_) => todo!(),
             ast::Declaration::Ellipsis(_) => todo!(),
             ast::Declaration::LetClause(_) => todo!(),
             ast::Declaration::Embedding(e) => {
-                current_value = current_value.meet(eval_expr(e, scope.clone().as_parent()))
+                current_value = current_value.meet(eval_expr(e, Scope::as_parent(scope.clone())))
             }
         }
     }
 
-    // TODO: meet fields
-
     current_value
 }
 
-pub fn eval_field(field: &ast::Field, scope: Rc<Scope>) -> value::Field {
+pub fn eval_field(field: &ast::Field, scope: MutableScope) -> Field {
     let label = match &field.label {
-        ast::Label::Ident(n, lm) => value::Label::Single(n.name.clone(), n.kind, lm.clone()),
-        ast::Label::Alias(_, _) => todo!(),
-        ast::Label::String(str, lm) => {
-            value::Label::Single(eval_interpolation(str.clone(), scope.clone().as_parent()), None, lm.clone())
-        }
-        ast::Label::Paren(expr, lm) => match eval_expr(&expr, scope.clone().as_parent()).as_ref() {
-            value::Value::String(value::Basic::Value(v)) => {
-                value::Label::Single(v.clone(), None, lm.clone())
-            }
-            _ => todo!(),
+        ast::Label::Ident(n, lm) => {
+            // scope.borrow_mut().set(n.clone(), RefCelPlaceholdervalue); // TODO
+            Label::Single(n.name.clone(), n.kind, lm.clone())
         },
+        ast::Label::Alias(_, _) => todo!(),
+        ast::Label::String(str, lm) => Label::Single(
+            eval_interpolation(str.clone(), Scope::as_parent(scope.clone())),
+            None,
+            lm.clone(),
+        ),
+        ast::Label::Paren(expr, lm) => {
+            match eval_expr(&expr, Scope::as_parent(scope.clone())).as_ref() {
+                Value::String(Basic::Value(v)) => Label::Single(v.clone(), None, lm.clone()),
+                _ => todo!(),
+            }
+        }
         ast::Label::Bracket(expr) => {
             let label_expr = if let ast::Expr::Alias(alias) = expr {
-                let inner = eval_expr(&alias.expr, scope.clone().as_parent());
-                scope.set_val(alias.ident.clone(), inner.clone());
+                let inner = eval_expr(&alias.expr, Scope::as_parent(scope.clone()));
+                scope.borrow_mut().set(alias.ident.clone(), inner.clone());
                 inner
             } else {
-                eval_expr(&expr, scope.clone().as_parent())
+                eval_expr(&expr, Scope::as_parent(scope.clone()))
             };
-            value::Label::Bulk(label_expr).into()
+            Label::Bulk(label_expr).into()
         }
     };
 
-    let value = Rc::from(eval_expr(&field.value, scope));
+    let value: Rc<Value> = Rc::from(eval_expr(&field.value, scope.clone()));
 
-    value::Field { label, value }
+    Field { label, value }
 }
 
-pub fn eval_interpolation(_str: ast::Interpolation, _scope: Rc<Scope>) -> Rc<str> {
+pub fn eval_interpolation(_str: ast::Interpolation, _scope: MutableScope) -> Rc<str> {
     todo!()
 }
 
-fn eval_predeclared(name: &str) -> Option<value::Value> {
+fn eval_predeclared(name: &str) -> Option<Value> {
     // https://cuelang.org/docs/references/spec/#predeclared-identifiers
     match name {
         "bool" => Some(cue_val!((bool))),
@@ -135,41 +107,36 @@ fn eval_predeclared(name: &str) -> Option<value::Value> {
     }
 }
 
-pub fn eval_expr(expr: &ast::Expr, scope: Rc<Scope>) -> Rc<value::Value> {
+pub fn eval_expr(expr: &ast::Expr, scope: MutableScope) -> Rc<Value> {
     match expr {
-        ast::Expr::Bad => value::Value::Bottom.into(),
         ast::Expr::Alias(_) => todo!(),
         ast::Expr::Comprehension(_) => todo!(),
         ast::Expr::Ident(n) => {
             if let Some(predeclared) = eval_predeclared(n.name.as_ref()) {
                 predeclared.into()
-            } else if let Some(val) = scope.deref(&n) {
+            } else if let Some(val) = scope.borrow().get(&n) {
                 val.into()
             } else {
-                value::Value::Bottom.into()
+                Value::Bottom.into()
             }
         }
         ast::Expr::QualifiedIdent(_, _) => todo!(),
-        ast::Expr::BasicLit(ast::BasicLit::Null) => value::Value::Null.into(),
-        ast::Expr::BasicLit(ast::BasicLit::Bottom) => value::Value::Bottom.into(),
-        ast::Expr::BasicLit(ast::BasicLit::Bool(b)) => value::Value::Bool(Some(*b)).into(),
-        ast::Expr::BasicLit(ast::BasicLit::Int(i)) => {
-            value::Value::Int(value::Basic::Value(*i)).into()
-        }
-        ast::Expr::BasicLit(ast::BasicLit::Float(f)) => {
-            value::Value::Float(value::Basic::Value(*f)).into()
-        }
-        ast::Expr::BasicLit(ast::BasicLit::String(s)) => match s {
-            ast::Interpolation::Simple(s) => value::Value::String(value::Basic::Value(s.clone())).into(),
+        ast::Expr::Null => Value::Null.into(),
+        ast::Expr::Bottom => Value::Bottom.into(),
+        ast::Expr::Bool(b) => Value::Bool(Some(*b)).into(),
+        ast::Expr::Int(i) => Value::Int(Basic::Value(*i)).into(),
+        ast::Expr::Float(f) => Value::Float(Basic::Value(*f)).into(),
+        ast::Expr::String(s) => match s {
+            ast::Interpolation::Simple(s) => Value::String(Basic::Value(s.clone())).into(),
             ast::Interpolation::Interpolated(_, _) => todo!(),
         },
-        ast::Expr::BasicLit(ast::BasicLit::Bytes(s)) => match s {
-            ast::Interpolation::Simple(s) => value::Value::Bytes(value::Basic::Value(s.clone())).into(),
+        ast::Expr::Bytes(s) => match s {
+            ast::Interpolation::Simple(s) => Value::Bytes(Basic::Value(s.clone())).into(),
             ast::Interpolation::Interpolated(_, _) => todo!(),
         },
-        ast::Expr::Struct(s) => eval_decls(s.elements.clone(), scope.as_parent()),
-        ast::Expr::List(l) => value::Value::List(
-            l.elements
+        ast::Expr::Struct(s) => eval_decls(s.clone(), Scope::as_parent(scope.clone())),
+        ast::Expr::List(l) => Value::List(
+            l
                 .into_iter()
                 .map(|e| eval_expr(e, scope.clone()))
                 .collect(),
@@ -196,11 +163,11 @@ pub fn eval_expr(expr: &ast::Expr, scope: Rc<Scope>) -> Rc<value::Value> {
     }
 }
 
-
 #[test]
 fn test_source_file() {
     use crate::cue_val;
-    let eval_str = |str| eval(ast::parser::parse_file(str).unwrap());
+    use crate::parser::parse_file;
+    let eval_str = |str| eval(parse_file(str).unwrap());
 
     assert_eq!(eval_str("a: 1"), cue_val!({(a): (1)}).into());
     assert_eq!(eval_str("{ a: 1 }"), cue_val!({(a): (1)}).into());

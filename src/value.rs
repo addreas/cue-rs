@@ -2,9 +2,9 @@ use std::{fmt::Debug, fmt::Display, rc::Rc};
 
 use regex::Regex;
 
-use super::op::RelOp;
-use crate::ast::{IdentKind, LabelModifier};
-use crate::match_basic;
+use super::adt::op::RelOp;
+use super::ast::{IdentKind, LabelModifier};
+use super::match_basic;
 
 
 #[derive(Debug, PartialEq, Clone)]

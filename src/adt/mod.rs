@@ -1,6 +1,6 @@
 pub mod op;
-pub mod value;
 pub mod eval;
+pub mod scope;
 
 mod macros {
 #[macro_export]
@@ -49,30 +49,30 @@ macro_rules! match_basic {
 #[macro_export]
 macro_rules! cue_val {
 
-    (_) => { crate::adt::value::Value::Top };
-    (_|_) => { crate::adt::value::Value::Bottom };
+    (_) => { crate::value::Value::Top };
+    (_|_) => { crate::value::Value::Bottom };
 
-    (null) => { crate::adt::value::Value::Null };
-    (bool) => { crate::adt::value::Value::Bool(None) };
-    (int) => { crate::adt::value::Value::Int(crate::adt::value::Basic::Type) };
-    (float) => { crate::adt::value::Value::Float(crate::adt::value::Basic::Type) };
-    (bytes) => { crate::adt::value::Value::Bytes(crate::adt::value::Basic::Type) };
-    (string) => { crate::adt::value::Value::String(crate::adt::value::Basic::Type) };
+    (null) => { crate::value::Value::Null };
+    (bool) => { crate::value::Value::Bool(None) };
+    (int) => { crate::value::Value::Int(crate::value::Basic::Type) };
+    (float) => { crate::value::Value::Float(crate::value::Basic::Type) };
+    (bytes) => { crate::value::Value::Bytes(crate::value::Basic::Type) };
+    (string) => { crate::value::Value::String(crate::value::Basic::Type) };
 
-    ($a:literal) => { crate::adt::value::Value::from($a) };
+    ($a:literal) => { crate::value::Value::from($a) };
 
-    ($op:tt $a:literal) => { crate::adt::value::Value::from((crate::rel_op!($op), $a)) };
-    ($op:tt~ $a:literal) => { crate::adt::value::Value::from((crate::rel_op!($op~), $a)) };
+    ($op:tt $a:literal) => { crate::value::Value::from((crate::rel_op!($op), $a)) };
+    ($op:tt~ $a:literal) => { crate::value::Value::from((crate::rel_op!($op~), $a)) };
 
-    ( $(($($a:tt)+))&+ ) => { crate::adt::value::Value::Conjunction([$( crate::cue_val!($($a)+).into() ),+ ].into()) };
-    ( $(($($a:tt)+))|+ ) => { crate::adt::value::Value::Disjunction([$( crate::cue_val!($($a)+).into() ),+ ].into()) };
+    ( $(($($a:tt)+))&+ ) => { crate::value::Value::Conjunction([$( crate::cue_val!($($a)+).into() ),+ ].into()) };
+    ( $(($($a:tt)+))|+ ) => { crate::value::Value::Disjunction([$( crate::cue_val!($($a)+).into() ),+ ].into()) };
 
-    (@label [ $($val:tt)+ ]) => { crate::adt::value::Label::Bulk(crate::cue_val!( $($val)+ ).into()) };
-    (@label $k:ident) => { crate::adt::value::Label::Single(stringify!($k).into(), None, None) };
-    (@label $k:literal) => { crate::adt::value::Label::Single($k.into(), None, None) };
+    (@label [ $($val:tt)+ ]) => { crate::value::Label::Bulk(crate::cue_val!( $($val)+ ).into()) };
+    (@label $k:ident) => { crate::value::Label::Single(stringify!($k).into(), None, None) };
+    (@label $k:literal) => { crate::value::Label::Single($k.into(), None, None) };
     ({ $( ($($k:tt)+) : ($($v:tt)+)),* }) => {
-        crate::adt::value::Value::Struct([
-            $(crate::adt::value::Field {
+        crate::value::Value::Struct([
+            $(crate::value::Field {
                 label: crate::cue_val!(@label $($k)+),
                 value: crate::cue_val!($($v)+).into(),
             }),*
