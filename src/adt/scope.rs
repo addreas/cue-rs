@@ -1,33 +1,30 @@
-use crate::value::Value;
 use crate::ast::Ident;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-type Scoped = Rc<Value>;
-pub type MutableScope = Rc<RefCell<Scope>>;
+pub type MutableScope<T> = Rc<RefCell<Scope<T>>>;
 
 #[derive(Debug, PartialEq, Clone, Default)]
-pub struct Scope {
-    parent: Option<MutableScope>,
-    items: HashMap<Ident, Scoped>,
+pub struct Scope<T> {
+    parent: Option<MutableScope<T>>,
+    items: HashMap<Ident, T>,
 }
 
-impl Scope {
-    pub fn new() -> MutableScope {
+impl<T: Clone> Scope<T> {
+    pub fn new() -> MutableScope<T> {
         Rc::new(RefCell::new(Self {
             parent: None,
             items: HashMap::new(),
         }))
     }
 
-    pub fn as_parent(outer: MutableScope) -> MutableScope {
+    pub fn as_parent(outer: MutableScope<T>) -> MutableScope<T> {
         Rc::new(RefCell::new(Self {
             parent: Some(outer),
             items: HashMap::new(),
         }))
     }
 
-
-    pub fn get(&self, ident: &Ident) -> Option<Scoped> {
+    pub fn get(&self, ident: &Ident) -> Option<T> {
         match self.items.get(ident) {
             Some(object) => Some(object.clone()),
             None => self
@@ -37,7 +34,7 @@ impl Scope {
         }
     }
 
-    pub fn set(&mut self, ident: Ident, object: Scoped) {
+    pub fn set(&mut self, ident: Ident, object: T) {
         self.items.insert(ident, object);
     }
 }
