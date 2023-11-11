@@ -112,6 +112,9 @@ impl Value {
             (Self::Bytes(_), Self::Bytes(None)) => self,
             (Self::Bytes(Some(a)), Self::Bytes(Some(b))) if a != b => Self::Bottom.into(),
 
+            (Self::Disjunction(lhs), _) => Self::meet_disjunction(lhs.clone(), other),
+            (_, Self::Disjunction(rhs)) => Self::meet_disjunction(rhs.clone(), self),
+
             (Self::Bound(op, a), _) => Self::meet_bound(op, a.clone(), other),
             (_, Self::Bound(op, b)) => Self::meet_bound(op, b.clone(), self),
 
@@ -120,9 +123,6 @@ impl Value {
 
             (Self::Struct(fields), _) if fields.iter().all(Field::visible) => Self::Disjunction([Self::Struct(fields.clone()).into(), other].into()).into(),
             (_, Self::Struct(fields)) if fields.iter().all(Field::visible) => Self::Disjunction([Self::Struct(fields.clone()).into(), self].into()).into(),
-
-            (Self::Disjunction(lhs), _) => Self::meet_disjunction(lhs.clone(), other),
-            (_, Self::Disjunction(rhs)) => Self::meet_disjunction(rhs.clone(), self),
 
             (_, _) => Self::Bottom.into(), // probably some TODOs here
         }
@@ -169,16 +169,25 @@ impl Value {
 
     fn meet_bound(op: &RelOp, bounding: Rc<Self>, constrained: Rc<Self>) -> Rc<Self> {
         match (bounding.as_ref(), constrained.as_ref()) {
-            (Self::Int(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(a, op, b) => constrained,
-            (Self::Float(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(a, op, b) => constrained,
+
+            (Self::Int(_), Self::Int(None)) => Self::Bound(*op, bounding).into(),
+            (Self::Float(_), Self::Float(None)) => Self::Bound(*op, bounding).into(),
+            (Self::String(_), Self::String(None)) => Self::Bound(*op, bounding).into(),
+            (Self::Bytes(_), Self::Bytes(None)) => Self::Bound(*op, bounding).into(),
+
+            (Self::Int(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(b, op, a) => constrained,
+            (Self::Float(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(b, op, a) => constrained,
             // (Self::Int(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(f64(a), op, b) => constrained,
             // (Self::Float(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(a, op, f64(b)) => constrained,
-            (Self::String(Some(a)), Self::String(Some(b))) if Self::rel_op_str(a, op, b) => constrained,
-            (Self::Bytes(Some(a)), Self::Bytes(Some(b))) if Self::rel_op_str(a, op, b) => constrained,
+            (Self::String(Some(a)), Self::String(Some(b))) if Self::rel_op_str(b, op, a) => constrained,
+            (Self::Bytes(Some(a)), Self::Bytes(Some(b))) if Self::rel_op_str(b, op, a) => constrained,
 
             (_, Self::Bound(opb, other)) => {
                 match (bounding.as_ref(), other.as_ref()) {
-                    (Value::Int(Some(a)), Value::Int(Some(b))) => Self::meet_bound_bound(op, a, opb, b, |x|Self::Int(Some(*x)), Self::rel_op_ord).into(),
+                    (Value::Int(Some(a)), Value::Int(Some(b))) => Self::meet_bound_bound(*op, *a, *opb, *b, Self::Int, Self::rel_op_ord).into(),
+                    (Value::Float(Some(a)), Value::Float(Some(b))) => Self::meet_bound_bound(*op, *a, *opb, *b, Self::Float, Self::rel_op_ord).into(),
+                    (Value::String(Some(a)), Value::String(Some(b))) => Self::meet_bound_bound(*op, a.clone(), *opb, b.clone(), Self::String, Self::rel_op_str).into(),
+                    (Value::Bytes(Some(a)), Value::Bytes(Some(b))) => Self::meet_bound_bound(*op, a.clone(), *opb, b.clone(), Self::Bytes, Self::rel_op_str).into(),
                     _ => Self::Bottom.into(),
                 }
             }
@@ -188,28 +197,28 @@ impl Value {
     }
 
     fn meet_bound_bound<T: PartialEq>(
-        opa: &RelOp,
-        a: &T,
-        opb: &RelOp,
-        b: &T,
-        construct: fn(&T) -> Self,
+        opa: RelOp,
+        a: T,
+        opb: RelOp,
+        b: T,
+        construct: fn(Option<T>) -> Self,
         rel_op: fn(&T, &RelOp, &T) -> bool,
     ) -> Self {
         match (
-            rel_op(a, opb, b),
-            rel_op(b, opa, a),
-            rel_op(a, opa, b),
-            rel_op(b, opb, a),
+            rel_op(&a, &opb, &b),
+            rel_op(&b, &opa, &a),
+            rel_op(&a, &opa, &b),
+            rel_op(&b, &opb, &a),
         ) {
-            (true, true, true, true) => construct(a),
+            (true, true, true, true) => construct(Some(a)),
             (true, true, _, _) => Value::Conjunction([
-                Self::Bound(*opa, construct(a).into()).into(),
-                Self::Bound(*opb, construct(b).into()).into(),
+                Self::Bound(opa, construct(Some(a)).into()).into(),
+                Self::Bound(opb, construct(Some(b)).into()).into(),
             ].into()),
-            (true, false, _, _) if a != b => Self::Bound(*opa, construct(a).into()),
-            (false, true, _, _) if a != b => Self::Bound(*opb, construct(b).into()),
+            (true, false, _, _) if a != b => Self::Bound(opa, construct(Some(a)).into()),
+            (false, true, _, _) if a != b => Self::Bound(opb, construct(Some(b)).into()),
             (_, _, _, _) => {
-                match_basic!((*opa, a), (*opb, b), construct, Value::Conjunction, {
+                match_basic!((opa, a), (opb, b), construct, Value::Conjunction, {
                     ((!=_) & (<=b)) => (<b),
                     ((!=_) & (>=b)) => (>b),
                     ((!=_) & (< b)) => (<b),
@@ -226,53 +235,61 @@ impl Value {
 
     fn join_bound(op: &RelOp, bounding: Rc<Self>, constrained: Rc<Self>) -> Rc<Self> {
         match (bounding.as_ref(), constrained.as_ref()) {
-            (a, b) if *op == RelOp::NotEqual && a == b => Self::Top.into(),
+            (Self::Int(a), Self::Int(b)) if *op == RelOp::NotEqual && a == b => Self::Int(None).into(),
+            (Self::Float(a), Self::Float(b)) if *op == RelOp::NotEqual && a == b => Self::Float(None).into(),
+            (Self::String(a), Self::String(b)) if *op == RelOp::NotEqual && a == b => Self::String(None).into(),
+            (Self::Bytes(a), Self::Bytes(b)) if *op == RelOp::NotEqual && a == b => Self::String(None).into(),
+
+            (Self::Int(_), Self::Int(None)) => constrained,
+            (Self::Float(_), Self::Float(None)) => constrained,
+            (Self::String(_), Self::String(None)) => constrained,
+            (Self::Bytes(_), Self::Bytes(None)) => constrained,
 
 
-            (Self::Int(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(a, op, b) => Self::Bound(*op, bounding).into(),
-            (Self::Float(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(a, op, b) => Self::Bound(*op, bounding).into(),
+            (Self::Int(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(b, op, a) => Self::Bound(*op, bounding).into(),
+            (Self::Float(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(b, op, a) => Self::Bound(*op, bounding).into(),
             // (Self::Int(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(f64(a), op, b) => Self::Bound(*op, bounding).into(),
             // (Self::Float(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(a, op, f64(b)) => Self::Bound(*op, bounding).into(),
-            (Self::String(Some(a)), Self::String(Some(b))) if Self::rel_op_str(a, op, b) => Self::Bound(*op, bounding).into(),
-            (Self::Bytes(Some(a)), Self::Bytes(Some(b))) if Self::rel_op_str(a, op, b) => Self::Bound(*op, bounding).into(),
+            (Self::String(Some(a)), Self::String(Some(b))) if Self::rel_op_str(b, op, a) => Self::Bound(*op, bounding).into(),
+            (Self::Bytes(Some(a)), Self::Bytes(Some(b))) if Self::rel_op_str(b, op, a) => Self::Bound(*op, bounding).into(),
 
             (_, Self::Bound(opb, other)) => {
                 match (bounding.as_ref(), other.as_ref()) {
-                    (Value::Int(Some(a)), Value::Int(Some(b))) => Self::join_bound_bound(op, a, opb, b, |x|Self::Int(Some(*x)), Self::rel_op_ord).into(),
-                    (Value::Float(Some(a)), Value::Float(Some(b))) => Self::join_bound_bound(op, a, opb, b, |x|Self::Float(Some(*x)), Self::rel_op_ord).into(),
-                    (Value::String(Some(a)), Value::String(Some(b))) => Self::join_bound_bound(op, a, opb, b, |x|Self::String(Some(x.clone())), |lhs, op, rhs|Self::rel_op_str(lhs, op, rhs)).into(),
-                    (Value::Bytes(Some(a)), Value::Bytes(Some(b))) => Self::join_bound_bound(op, a, opb, b, |x|Self::Bytes(Some(x.clone())), |lhs, op, rhs|Self::rel_op_str(lhs, op, rhs)).into(),
-                    _ => Self::Bottom.into(),
+                    (Value::Int(Some(a)), Value::Int(Some(b))) => Self::join_bound_bound(*op, *a, *opb, *b, Self::Int, Self::rel_op_ord).into(),
+                    (Value::Float(Some(a)), Value::Float(Some(b))) => Self::join_bound_bound(*op, *a, *opb, *b, Self::Float, Self::rel_op_ord).into(),
+                    (Value::String(Some(a)), Value::String(Some(b))) => Self::join_bound_bound(*op, a.clone(), *opb, b.clone(), Self::String, Self::rel_op_str).into(),
+                    (Value::Bytes(Some(a)), Value::Bytes(Some(b))) => Self::join_bound_bound(*op, a.clone(), *opb, b.clone(), Self::Bytes, Self::rel_op_str).into(),
+                    _ => Self::Disjunction([Self::Bound(*op, bounding).into(), constrained].into()).into(),
                 }
             }
 
-            _ => Self::Bottom.into(),
+            _ => Self::Disjunction([constrained, Self::Bound(*op, bounding).into()].into()).into(),
         }
     }
 
     fn join_bound_bound<T: PartialEq>(
-        opa: &RelOp,
-        a: &T,
-        opb: &RelOp,
-        b: &T,
-        construct: fn(&T) -> Self,
+        opa: RelOp,
+        a: T,
+        opb: RelOp,
+        b: T,
+        construct: fn(Option<T>) -> Self,
         rel_op: fn(&T, &RelOp, &T) -> bool,
     ) -> Self {
         match (
-            rel_op(a, opb, b),
-            rel_op(b, opa, a),
-            rel_op(a, opa, b),
-            rel_op(b, opb, a),
+            rel_op(&a, &opb, &b),
+            rel_op(&b, &opa, &a),
+            rel_op(&a, &opa, &b),
+            rel_op(&b, &opb, &a),
         ) {
-            (true, true, _, _) => Self::Top,
+            (true, true, _, _) => construct(None),
             (false, false, _, _) if a != b => Value::Disjunction([
-                Self::Bound(*opa, construct(a).into()).into(),
-                Self::Bound(*opb, construct(b).into()).into(),
+                Self::Bound(opa, construct(Some(a)).into()).into(),
+                Self::Bound(opb, construct(Some(b)).into()).into(),
             ].into()),
-            (false, true, _, _) if a != b => Self::Bound(*opa, construct(a).into()),
-            (true, false, _, _) if a != b => Self::Bound(*opb, construct(b).into()),
+            (false, true, _, _) if a != b => Self::Bound(opa, construct(Some(a)).into()),
+            (true, false, _, _) if a != b => Self::Bound(opb, construct(Some(b)).into()),
             (_, _, _, _) => {
-                match_basic!((*opa, a), (*opb, b), construct, Value::Disjunction, {
+                match_basic!((opa, a), (opb, b), construct, Value::Disjunction, {
                     ((!=_) | (<=_)) => (_),
                     ((!=_) | (>=_)) => (_),
                     ((!=a) | (< _)) => (!=a),
@@ -288,7 +305,7 @@ impl Value {
         }
     }
 
-    fn rel_op_str(lhs: &str, op: &RelOp, rhs: &str) -> bool {
+    fn rel_op_str(lhs: &Rc<str>, op: &RelOp, rhs: &Rc<str>) -> bool {
         match op {
             RelOp::NotEqual => lhs != rhs,
 
@@ -297,8 +314,8 @@ impl Value {
             RelOp::LessEqual => lhs <= rhs,
             RelOp::LessThan => lhs < rhs,
 
-            RelOp::Match => Regex::new(rhs).unwrap().is_match(lhs),
-            RelOp::NotMatch => !Regex::new(rhs).unwrap().is_match(lhs),
+            RelOp::Match => Regex::new(rhs.as_ref()).unwrap().is_match(lhs.as_ref()),
+            RelOp::NotMatch => !Regex::new(rhs.as_ref()).unwrap().is_match(lhs.as_ref()),
         }
     }
 

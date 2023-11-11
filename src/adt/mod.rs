@@ -16,11 +16,11 @@ macro_rules! rel_op {
 
 #[macro_export]
 macro_rules! match_basic {
-    (@val $construct:ident, _) => { Value::Top };
+    (@val $construct:ident, _) => { $construct(None) };
     (@val $construct:ident, _|_) => { Value::Bottom };
-    (@val $construct:ident, $a:ident) => { $construct($a) };
-    (@val $construct:ident, $op:tt $a:ident) => { crate::value::Value::Bound(crate::rel_op!($op), $construct($a).into()) };
-    (@val $construct:ident, $op:tt~ $a:ident) => { crate::value::Value::Bound(crate::rel_op!($op~), $construct($a).into()) };
+    (@val $construct:ident, $a:ident) => { $construct(Some($a)) };
+    (@val $construct:ident, $op:tt $a:ident) => { crate::value::Value::Bound(crate::rel_op!($op), $construct(Some($a)).into()) };
+    (@val $construct:ident, $op:tt~ $a:ident) => { crate::value::Value::Bound(crate::rel_op!($op~), $construct(Some($a)).into()) };
 
     (@pat $op:tt $val:tt) => { (crate::rel_op!($op), $val) };
     (@pat $op:tt~ $val:tt) => { (crate::rel_op!($op~), $val) };
