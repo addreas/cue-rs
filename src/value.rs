@@ -17,26 +17,21 @@ pub enum Value {
     Struct(Rc<[Field]>),
     List(Rc<[Rc<Value>]>),
 
-    String(Basic<Rc<str>>),
+    String(Option<Rc<str>>),
     // StringInterpolation(Rc<[Rc<str>]>, Rc<[Rc<Value>]>),
-    Bytes(Basic<Rc<str>>),
+    Bytes(Option<Rc<str>>),
     // BytesInterpolation(Rc<[Rc<str>]>, Rc<[Rc<Value>]>),
 
-    Float(Basic<f64>),
-    Int(Basic<i64>),
+    Bound(RelOp, Rc<Value>),
+
+    Float(Option<f64>),
+    Int(Option<i64>),
 
     Bool(Option<bool>),
 
     Null,
 
     Bottom,
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Basic<T> {
-    Type,
-    Relation(RelOp, T),
-    Value(T),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -99,15 +94,26 @@ impl Value {
 
             (Self::Bool(None), Self::Bool(_)) => other,
             (Self::Bool(_), Self::Bool(None)) => self,
-
-            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => self,
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bottom.into(),
 
-            (Self::Int(lhs), Self::Int(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Int, Self::rel_op_ord).into(),
-            (Self::Float(lhs), Self::Float(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Float, Self::rel_op_ord).into(),
+            (Self::Int(None), Self::Int(_)) => other,
+            (Self::Int(_), Self::Int(None)) => self,
+            (Self::Int(Some(a)), Self::Int(Some(b))) if a != b => Self::Bottom.into(),
 
-            (Self::String(lhs), Self::String(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::String, |a, op, b| Self::rel_op_str(a, op, b)).into(),
-            (Self::Bytes(lhs), Self::Bytes(rhs)) => Self::meet_basic(lhs.clone(), rhs.clone(), Self::Bytes, |a, op, b| Self::rel_op_str(a, op, b)).into(),
+            (Self::Float(None), Self::Float(_)) => other,
+            (Self::Float(_), Self::Float(None)) => self,
+            (Self::Float(Some(a)), Self::Float(Some(b))) if a != b => Self::Bottom.into(),
+
+            (Self::String(None), Self::String(_)) => other,
+            (Self::String(_), Self::String(None)) => self,
+            (Self::String(Some(a)), Self::String(Some(b))) if a != b => Self::Bottom.into(),
+
+            (Self::Bytes(None), Self::Bytes(_)) => other,
+            (Self::Bytes(_), Self::Bytes(None)) => self,
+            (Self::Bytes(Some(a)), Self::Bytes(Some(b))) if a != b => Self::Bottom.into(),
+
+            (Self::Bound(op, a), _) => Self::meet_bound(op, a.clone(), other),
+            (_, Self::Bound(op, b)) => Self::meet_bound(op, b.clone(), self),
 
             (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs.clone(), rhs.clone()).into(),
             (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs.clone(), rhs.clone()).into(),
@@ -137,14 +143,22 @@ impl Value {
             (Self::Bool(None), Self::Bool(_)) => self,
             (Self::Bool(_), Self::Bool(None)) => other,
 
-            (Self::Bool(Some(a)), Self::Bool(Some(b))) if a == b => self,
             (Self::Bool(Some(a)), Self::Bool(Some(b))) if a != b => Self::Bool(None).into(),
 
-            (Self::Int(lhs  ), Self::Int(rhs  )) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Int, Self::rel_op_ord).into(),
-            (Self::Float(lhs), Self::Float(rhs)) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Float, Self::rel_op_ord).into(),
+            (Self::Int(None), Self::Int(_)) => self,
+            (Self::Int(_), Self::Int(None)) => other,
 
-            (Self::Bytes(lhs ), Self::Bytes(rhs )) => Self::join_basic(lhs.clone(), rhs.clone(), Self::Bytes, |a, op, b| Self::rel_op_str(a, op, b)).into(),
-            (Self::String(lhs), Self::String(rhs)) => Self::join_basic(lhs.clone(), rhs.clone(), Self::String, |a, op, b| Self::rel_op_str(a, op, b)).into(),
+            (Self::Float(None), Self::Float(_)) => self,
+            (Self::Float(_), Self::Float(None)) => other,
+
+            (Self::String(None), Self::String(_)) => self,
+            (Self::String(_), Self::String(None)) => other,
+
+            (Self::Bytes(None), Self::Bytes(_)) => self,
+            (Self::Bytes(_), Self::Bytes(None)) => other,
+
+            (Self::Bound(op, a), _) => Self::join_bound(op, a.clone(), other),
+            (_, Self::Bound(op, b)) => Self::join_bound(op, b.clone(), self),
 
             (Self::Disjunction(lhs), _) => Self::join_disjunction(lhs.clone(), other).into(),
             (_, Self::Disjunction(rhs)) => Self::join_disjunction(rhs.clone(), self).into(),
@@ -153,108 +167,128 @@ impl Value {
         }
     }
 
-    fn meet_basic<T: PartialEq + Clone + Display>(
-        lhs: Basic<T>,
-        rhs: Basic<T>,
-        construct: fn(Basic<T>) -> Self,
-        rel_op: fn(&T, RelOp, &T) -> bool,
-    ) -> Self {
-        match (&lhs, &rhs) {
-            (Basic::Type, _) => construct(rhs),
-            (_, Basic::Type) => construct(lhs),
+    fn meet_bound(op: &RelOp, bounding: Rc<Self>, constrained: Rc<Self>) -> Rc<Self> {
+        match (bounding.as_ref(), constrained.as_ref()) {
+            (Self::Int(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(a, op, b) => constrained,
+            (Self::Float(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(a, op, b) => constrained,
+            // (Self::Int(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(f64(a), op, b) => constrained,
+            // (Self::Float(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(a, op, f64(b)) => constrained,
+            (Self::String(Some(a)), Self::String(Some(b))) if Self::rel_op_str(a, op, b) => constrained,
+            (Self::Bytes(Some(a)), Self::Bytes(Some(b))) if Self::rel_op_str(a, op, b) => constrained,
 
-            (Basic::Value(a), Basic::Value(b)) if a == b => construct(lhs),
-
-            (Basic::Value(a), Basic::Relation(op, b)) if rel_op(a, *op, b) => construct(lhs),
-            (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(rhs),
-
-            (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
-                match (
-                    rel_op(a, *opb, b),
-                    rel_op(b, *opa, a),
-                    rel_op(a, *opa, b),
-                    rel_op(b, *opb, a),
-                ) {
-                    (true, true, true, true) => construct(Basic::Value(a.clone())),
-                    (true, true, _, _) => Value::Conjunction([
-                        construct(Basic::Relation(*opa, a.clone())).into(),
-                        construct(Basic::Relation(*opb, b.clone())).into(),
-                    ].into()),
-                    (true, false, _, _) if a != b => construct(Basic::Relation(*opa, a.clone())),
-                    (false, true, _, _) if a != b => construct(Basic::Relation(*opb, b.clone())),
-                    (_, _, _, _) => {
-                        match_basic!((*opa, a), (*opb, b), construct, Value::Conjunction, {
-                            ((!=_) & (<=b)) => (<b),
-                            ((!=_) & (>=b)) => (>b),
-                            ((!=_) & (< b)) => (<b),
-                            ((!=_) & (> b)) => (>b),
-                            ((<a)  & (<=_)) => (<a),
-                            ((>a)  & (>=_)) => (>a),
-                            ((<_)  & (>=_)) => (_|_),
-                            ((>_)  & (<=_)) => (_|_),
-                            ((!~_) & (=~_)) => (_|_),
-                        })
-                    }
+            (_, Self::Bound(opb, other)) => {
+                match (bounding.as_ref(), other.as_ref()) {
+                    (Value::Int(Some(a)), Value::Int(Some(b))) => Self::meet_bound_bound(op, a, opb, b, |x|Self::Int(Some(*x)), Self::rel_op_ord).into(),
+                    _ => Self::Bottom.into(),
                 }
             }
 
-            (_, _) => Self::Bottom,
+            _ => Self::Bottom.into(),
         }
     }
 
-    fn join_basic<T: PartialEq + Clone + Display>(
-        lhs: Basic<T>,
-        rhs: Basic<T>,
-        construct: fn(Basic<T>) -> Self,
-        rel_op: fn(&T, RelOp, &T) -> bool,
+    fn meet_bound_bound<T: PartialEq>(
+        opa: &RelOp,
+        a: &T,
+        opb: &RelOp,
+        b: &T,
+        construct: fn(&T) -> Self,
+        rel_op: fn(&T, &RelOp, &T) -> bool,
     ) -> Self {
-        match (&lhs, &rhs) {
-            (Basic::Type, _) => construct(lhs),
-            (_, Basic::Type) => construct(rhs),
+        match (
+            rel_op(a, opb, b),
+            rel_op(b, opa, a),
+            rel_op(a, opa, b),
+            rel_op(b, opb, a),
+        ) {
+            (true, true, true, true) => construct(a),
+            (true, true, _, _) => Value::Conjunction([
+                Self::Bound(*opa, construct(a).into()).into(),
+                Self::Bound(*opb, construct(b).into()).into(),
+            ].into()),
+            (true, false, _, _) if a != b => Self::Bound(*opa, construct(a).into()),
+            (false, true, _, _) if a != b => Self::Bound(*opb, construct(b).into()),
+            (_, _, _, _) => {
+                match_basic!((*opa, a), (*opb, b), construct, Value::Conjunction, {
+                    ((!=_) & (<=b)) => (<b),
+                    ((!=_) & (>=b)) => (>b),
+                    ((!=_) & (< b)) => (<b),
+                    ((!=_) & (> b)) => (>b),
+                    ((<a)  & (<=_)) => (<a),
+                    ((>a)  & (>=_)) => (>a),
+                    ((<_)  & (>=_)) => (_|_),
+                    ((>_)  & (<=_)) => (_|_),
+                    ((!~_) & (=~_)) => (_|_),
+                })
+            }
+        }
+    }
 
-            (Basic::Value(a), Basic::Value(b)) if a == b => construct(lhs),
+    fn join_bound(op: &RelOp, bounding: Rc<Self>, constrained: Rc<Self>) -> Rc<Self> {
+        match (bounding.as_ref(), constrained.as_ref()) {
+            (a, b) if *op == RelOp::NotEqual && a == b => Self::Top.into(),
 
-            (Basic::Value(a), Basic::Relation(op, b)) if rel_op(a, *op, b) => construct(rhs),
-            (Basic::Value(a), Basic::Relation(op, b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
-            (Basic::Relation(op, a), Basic::Value(b)) if rel_op(a, *op, b) => construct(lhs),
-            (Basic::Relation(op, a), Basic::Value(b)) if *op == RelOp::NotEqual && a == b => construct(Basic::Type),
 
-            (Basic::Relation(opa, a), Basic::Relation(opb, b)) => {
-                match (
-                    rel_op(a, *opb, b),
-                    rel_op(b, *opa, a),
-                    rel_op(a, *opa, b),
-                    rel_op(b, *opb, a),
-                ) {
-                    (true, true, _, _) => construct(Basic::Type),
-                    (false, false, _, _) if a != b => Value::Disjunction([
-                        construct(Basic::Relation(*opa, a.clone())).into(),
-                        construct(Basic::Relation(*opb, b.clone())).into(),
-                    ].into()),
-                    (false, true, _, _) if a != b => construct(Basic::Relation(*opa, a.clone())),
-                    (true, false, _, _) if a != b => construct(Basic::Relation(*opb, b.clone())),
-                    (_, _, _, _) => {
-                        match_basic!((*opa, a), (*opb, b), construct, Value::Disjunction, {
-                            ((!=_) | (<=_)) => (_),
-                            ((!=_) | (>=_)) => (_),
-                            ((!=a) | (< _)) => (!=a),
-                            ((!=a) | (> _)) => (!=a),
-                            ((<_)  | (> b)) => (!=b),
-                            ((<_)  | (<=b)) => (<=b),
-                            ((>_)  | (>=b)) => (>=b),
-                            ((<_)  | (>=_)) => (_),
-                            ((>_)  | (<=_)) => (_),
-                            ((!~_) | (=~_)) => (_),
-                        })
-                    }
+            (Self::Int(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(a, op, b) => Self::Bound(*op, bounding).into(),
+            (Self::Float(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(a, op, b) => Self::Bound(*op, bounding).into(),
+            // (Self::Int(Some(a)), Self::Float(Some(b))) if Self::rel_op_ord(f64(a), op, b) => Self::Bound(*op, bounding).into(),
+            // (Self::Float(Some(a)), Self::Int(Some(b))) if Self::rel_op_ord(a, op, f64(b)) => Self::Bound(*op, bounding).into(),
+            (Self::String(Some(a)), Self::String(Some(b))) if Self::rel_op_str(a, op, b) => Self::Bound(*op, bounding).into(),
+            (Self::Bytes(Some(a)), Self::Bytes(Some(b))) if Self::rel_op_str(a, op, b) => Self::Bound(*op, bounding).into(),
+
+            (_, Self::Bound(opb, other)) => {
+                match (bounding.as_ref(), other.as_ref()) {
+                    (Value::Int(Some(a)), Value::Int(Some(b))) => Self::join_bound_bound(op, a, opb, b, |x|Self::Int(Some(*x)), Self::rel_op_ord).into(),
+                    (Value::Float(Some(a)), Value::Float(Some(b))) => Self::join_bound_bound(op, a, opb, b, |x|Self::Float(Some(*x)), Self::rel_op_ord).into(),
+                    (Value::String(Some(a)), Value::String(Some(b))) => Self::join_bound_bound(op, a, opb, b, |x|Self::String(Some(x.clone())), |lhs, op, rhs|Self::rel_op_str(lhs, op, rhs)).into(),
+                    (Value::Bytes(Some(a)), Value::Bytes(Some(b))) => Self::join_bound_bound(op, a, opb, b, |x|Self::Bytes(Some(x.clone())), |lhs, op, rhs|Self::rel_op_str(lhs, op, rhs)).into(),
+                    _ => Self::Bottom.into(),
                 }
             }
 
-            (_, _) => Self::Disjunction([construct(lhs).into(), construct(rhs).into()].into()),
+            _ => Self::Bottom.into(),
         }
     }
 
-    fn rel_op_str(lhs: &str, op: RelOp, rhs: &str) -> bool {
+    fn join_bound_bound<T: PartialEq>(
+        opa: &RelOp,
+        a: &T,
+        opb: &RelOp,
+        b: &T,
+        construct: fn(&T) -> Self,
+        rel_op: fn(&T, &RelOp, &T) -> bool,
+    ) -> Self {
+        match (
+            rel_op(a, opb, b),
+            rel_op(b, opa, a),
+            rel_op(a, opa, b),
+            rel_op(b, opb, a),
+        ) {
+            (true, true, _, _) => Self::Top,
+            (false, false, _, _) if a != b => Value::Disjunction([
+                Self::Bound(*opa, construct(a).into()).into(),
+                Self::Bound(*opb, construct(b).into()).into(),
+            ].into()),
+            (false, true, _, _) if a != b => Self::Bound(*opa, construct(a).into()),
+            (true, false, _, _) if a != b => Self::Bound(*opb, construct(b).into()),
+            (_, _, _, _) => {
+                match_basic!((*opa, a), (*opb, b), construct, Value::Disjunction, {
+                    ((!=_) | (<=_)) => (_),
+                    ((!=_) | (>=_)) => (_),
+                    ((!=a) | (< _)) => (!=a),
+                    ((!=a) | (> _)) => (!=a),
+                    ((<_)  | (> b)) => (!=b),
+                    ((<_)  | (<=b)) => (<=b),
+                    ((>_)  | (>=b)) => (>=b),
+                    ((<_)  | (>=_)) => (_),
+                    ((>_)  | (<=_)) => (_),
+                    ((!~_) | (=~_)) => (_),
+                })
+            }
+        }
+    }
+
+    fn rel_op_str(lhs: &str, op: &RelOp, rhs: &str) -> bool {
         match op {
             RelOp::NotEqual => lhs != rhs,
 
@@ -268,7 +302,7 @@ impl Value {
         }
     }
 
-    fn rel_op_ord<T: PartialEq + PartialOrd>(lhs: &T, op: RelOp, rhs: &T) -> bool {
+    fn rel_op_ord<T: PartialEq + PartialOrd>(lhs: &T, op: &RelOp, rhs: &T) -> bool {
         match op {
             RelOp::NotEqual => lhs != rhs,
 
@@ -695,34 +729,34 @@ impl From<bool> for Value {
 
 impl From<i64> for Value {
     fn from(value: i64) -> Self {
-        Value::Int(Basic::Value(value))
+        Value::Int(Some(value))
     }
 }
 impl From<(RelOp, i64)> for Value {
     fn from(value: (RelOp, i64)) -> Value {
-        Value::Int(Basic::Relation(value.0, value.1))
+        Value::Bound(value.0, Value::Int(Some(value.1)).into())
     }
 }
 
 impl From<f64> for Value {
     fn from(value: f64) -> Self {
-        Value::Float(Basic::Value(value))
+        Value::Float(Some(value))
     }
 }
 impl From<(RelOp, f64)> for Value {
     fn from(value: (RelOp, f64)) -> Value {
-        Value::Float(Basic::Relation(value.0, value.1))
+        Value::Bound(value.0, Value::Float(Some(value.1)).into())
     }
 }
 
 impl From<&str> for Value {
     fn from(value: &str) -> Self {
-        Value::String(Basic::Value(value.into()))
+        Value::String(Some(value.into()))
     }
 }
 impl From<(RelOp, &str)> for Value {
     fn from(value: (RelOp, &str)) -> Value {
-        Value::String(Basic::Relation(value.0, value.1.into()))
+        Value::Bound(value.0, Value::String(Some(value.1.into())).into())
     }
 }
 
@@ -759,20 +793,17 @@ impl Display for Value {
 
             Value::List(items) => write_separated!(items, "[", ",\n", "]"),
 
-            Value::String(Basic::Type) => write!(f, "string"),
-            Value::Bytes(Basic::Type) => write!(f, "bytes"),
-            Value::Float(Basic::Type) => write!(f, "float"),
-            Value::Int(Basic::Type) => write!(f, "int"),
+            Value::String(None) => write!(f, "string"),
+            Value::Bytes(None) => write!(f, "bytes"),
+            Value::Float(None) => write!(f, "float"),
+            Value::Int(None) => write!(f, "int"),
 
-            Value::String(Basic::Value(val)) => write!(f, "\"{}\"", val),
-            Value::Bytes(Basic::Value(val)) => write!(f, "'{}'", val),
-            Value::Float(Basic::Value(val)) => Display::fmt(val, f),
-            Value::Int(Basic::Value(val)) => Display::fmt(val, f),
+            Value::String(Some(val)) => write!(f, "\"{}\"", val),
+            Value::Bytes(Some(val)) => write!(f, "'{}'", val),
+            Value::Float(Some(val)) => Display::fmt(val, f),
+            Value::Int(Some(val)) => Display::fmt(val, f),
 
-            Value::String(Basic::Relation(op, val)) => write!(f, "{}\"{}\"", op, val),
-            Value::Bytes(Basic::Relation(op, val)) => write!(f, "{}'{}'", op, val),
-            Value::Float(Basic::Relation(op, val)) => write!(f, "{}{}", op, val),
-            Value::Int(Basic::Relation(op, val)) => write!(f, "{}{}", op, val),
+            Value::Bound(op, val) => write!(f, "{}{}", op, val),
 
             Value::Bool(None) => write!(f, "bool"),
             Value::Bool(Some(true)) => write!(f, "true"),

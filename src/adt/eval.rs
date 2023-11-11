@@ -1,9 +1,9 @@
 use crate::{
     adt::scope::{MutableScope, Scope},
     ast, cue_val,
-    value::{Basic, Field, Label, Value},
+    value::{Field, Label, Value},
 };
-use std::{rc::{Rc, Weak}, collections::HashMap};
+use std::rc::Rc;
 
 
 pub struct Interpreter {}
@@ -62,7 +62,7 @@ impl Interpreter {
                     .eval_expr(&expr, Scope::as_parent(scope.clone()))
                     .as_ref()
                 {
-                    Value::String(Basic::Value(v)) => Label::Single(v.clone(), None, lm.clone()),
+                    Value::String(Some(v)) => Label::Single(v.clone(), None, lm.clone()),
                     _ => todo!(),
                 }
             }
@@ -100,14 +100,14 @@ impl Interpreter {
             ast::Expr::Null => Value::Null.into(),
             ast::Expr::Bottom => Value::Bottom.into(),
             ast::Expr::Bool(b) => Value::Bool(Some(*b)).into(),
-            ast::Expr::Int(i) => Value::Int(Basic::Value(*i)).into(),
-            ast::Expr::Float(f) => Value::Float(Basic::Value(*f)).into(),
+            ast::Expr::Int(i) => Value::Int(Some(*i)).into(),
+            ast::Expr::Float(f) => Value::Float(Some(*f)).into(),
             ast::Expr::String(s) => match s {
-                ast::Interpolation::Simple(s) => Value::String(Basic::Value(s.clone())).into(),
+                ast::Interpolation::Simple(s) => Value::String(Some(s.clone())).into(),
                 ast::Interpolation::Interpolated(_, _) => todo!(),
             },
             ast::Expr::Bytes(s) => match s {
-                ast::Interpolation::Simple(s) => Value::Bytes(Basic::Value(s.clone())).into(),
+                ast::Interpolation::Simple(s) => Value::Bytes(Some(s.clone())).into(),
                 ast::Interpolation::Interpolated(_, _) => todo!(),
             },
             ast::Expr::Struct(s) => self.eval_decls(s.clone(), Scope::as_parent(scope)),

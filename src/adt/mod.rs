@@ -16,11 +16,11 @@ macro_rules! rel_op {
 
 #[macro_export]
 macro_rules! match_basic {
-    (@val $construct:ident, _) => { $construct(Basic::Type) };
+    (@val $construct:ident, _) => { Value::Top };
     (@val $construct:ident, _|_) => { Value::Bottom };
-    (@val $construct:ident, $a:ident) => { $construct(Basic::Value($a.clone())) };
-    (@val $construct:ident, $op:tt $a:ident) => { $construct(Basic::Relation(crate::rel_op!($op), $a.clone())) };
-    (@val $construct:ident, $op:tt~ $a:ident) => { $construct(Basic::Relation(crate::rel_op!($op~), $a.clone())) };
+    (@val $construct:ident, $a:ident) => { $construct($a) };
+    (@val $construct:ident, $op:tt $a:ident) => { crate::value::Value::Bound(crate::rel_op!($op), $construct($a).into()) };
+    (@val $construct:ident, $op:tt~ $a:ident) => { crate::value::Value::Bound(crate::rel_op!($op~), $construct($a).into()) };
 
     (@pat $op:tt $val:tt) => { (crate::rel_op!($op), $val) };
     (@pat $op:tt~ $val:tt) => { (crate::rel_op!($op~), $val) };
@@ -54,10 +54,10 @@ macro_rules! cue_val {
 
     (null) => { crate::value::Value::Null };
     (bool) => { crate::value::Value::Bool(None) };
-    (int) => { crate::value::Value::Int(crate::value::Basic::Type) };
-    (float) => { crate::value::Value::Float(crate::value::Basic::Type) };
-    (bytes) => { crate::value::Value::Bytes(crate::value::Basic::Type) };
-    (string) => { crate::value::Value::String(crate::value::Basic::Type) };
+    (int) => { crate::value::Value::Int(None) };
+    (float) => { crate::value::Value::Float(None) };
+    (bytes) => { crate::value::Value::Bytes(None) };
+    (string) => { crate::value::Value::String(None) };
 
     ($a:literal) => { crate::value::Value::from($a) };
 
