@@ -47,38 +47,6 @@ pub struct Field {
     pub value: Rc<Value>,
 }
 
-impl Field {
-    fn visible(&self) -> bool {
-        match self.label {
-            Label::Single(_, None, None) => true,
-            Label::Single(_, None, Some(LabelModifier::Required)) => true,
-            _ => false,
-        }
-    }
-}
-
-impl Display for Field {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.label.clone() {
-            Label::Single(n, label_type, label_modifier) => {
-                let prefix = match label_type {
-                    None => "",
-                    Some(IdentKind::Hidden) => "_",
-                    Some(IdentKind::Definition) => "#",
-                    Some(IdentKind::HiddenDefinition) => "_#",
-                };
-                let postfix = match label_modifier {
-                    None => "",
-                    Some(LabelModifier::Optional) => "?",
-                    Some(LabelModifier::Required) => "!",
-                };
-                write!(f, "{}{}{}: {}", prefix, n, postfix, self.value)
-            },
-            Label::Bulk(expr) => write!(f, "[{}]: {}", expr, self.value),
-        }
-    }
-}
-
 impl Value {
     // infimum, greatest lower bound, unification (&)
     pub fn meet(self: Rc<Self>, other: Rc<Self>) -> Rc<Self> {
@@ -391,6 +359,16 @@ impl Value {
 
     pub fn is_bottom(self: &Self) -> bool {
         *self == Self::Bottom
+    }
+}
+
+impl Field {
+    fn visible(&self) -> bool {
+        match self.label {
+            Label::Single(_, None, None) => true,
+            Label::Single(_, None, Some(LabelModifier::Required)) => true,
+            _ => false,
+        }
     }
 }
 
@@ -829,6 +807,28 @@ impl Display for Value {
             Value::Null => write!(f, "null"),
 
             Value::Bottom => write!(f, "_|_"),
+        }
+    }
+}
+
+impl Display for Field {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.label.clone() {
+            Label::Single(n, label_type, label_modifier) => {
+                let prefix = match label_type {
+                    None => "",
+                    Some(IdentKind::Hidden) => "_",
+                    Some(IdentKind::Definition) => "#",
+                    Some(IdentKind::HiddenDefinition) => "_#",
+                };
+                let postfix = match label_modifier {
+                    None => "",
+                    Some(LabelModifier::Optional) => "?",
+                    Some(LabelModifier::Required) => "!",
+                };
+                write!(f, "{}{}{}: {}", prefix, n, postfix, self.value)
+            },
+            Label::Bulk(expr) => write!(f, "[{}]: {}", expr, self.value),
         }
     }
 }
