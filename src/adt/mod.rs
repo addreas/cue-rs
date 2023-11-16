@@ -1,6 +1,6 @@
 pub mod op;
 pub mod eval;
-pub mod scope;
+pub mod environment;
 
 mod macros {
 #[macro_export]

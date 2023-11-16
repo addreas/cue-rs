@@ -1,156 +1,246 @@
 use crate::{
-    adt::scope::{MutableScope, Scope},
+    adt::environment::{MutableEnvironment, Environment},
     ast, cue_val,
     value::{Field, Label, Value},
 };
-use std::rc::Rc;
+use std::{rc::Rc, cell::RefCell};
 
+type NodeRef = Rc<RefCell<Node>>;
+#[derive(Debug, Clone)]
+enum Node {
+    Bottom,
+    Value(Rc<Value>),
+
+    Interpolation(Rc<[NodeRef]>),
+    List(Rc<[NodeRef]>),
+    Struct(Rc<[Edge]>, Rc<[NodeRef]>),
+    Selector(NodeRef, Selector),
+    Reference(NodeRef),
+    Index(NodeRef, NodeRef),
+    Slice(NodeRef, Option<NodeRef>, Option<NodeRef>),
+    Guard(NodeRef, NodeRef),
+    For(NodeRef, ast::Ident, Option<ast::Ident>, NodeRef),
+
+    Expr(ast::Expr, MutableEnvironment<NodeRef>),
+    Declarations(Rc<[ast::Declaration]>, MutableEnvironment<NodeRef>),
+}
+
+impl Node {
+    pub fn into_ref(self) -> NodeRef {
+        Rc::new(RefCell::new(self))
+    }
+}
+
+#[derive(Debug, Clone)]
+struct Edge {
+    label: Label,
+    value: NodeRef,
+}
+
+#[derive(Debug, Clone)]
+enum Selector {
+    Ident(ast::Ident),
+    Interpolation(NodeRef)
+}
 
 pub struct Interpreter {}
 
 impl Interpreter {
     pub fn eval(source: ast::SourceFile) -> Rc<Value> {
         let interpreter = Interpreter {};
-        let scope = Scope::new();
-        interpreter.eval_decls(source.declarations, scope)
+        let env = Environment::new();
+        Self::init_predeclared(env.clone());
+
+        let result = Rc::new(RefCell::new(Node::Declarations(source.declarations, env)));
+        let mut unfinished = vec![result.clone()];
+        while let Some(next) = unfinished.pop() {
+            let (result, more) = interpreter.eval_node(&next.borrow());
+            unfinished.extend(more);
+            match result {
+                Node::Value(_) => {},
+                _ => unfinished.push(next.clone()),
+            };
+            next.replace(result);
+        }
+
+        match &*result.clone().borrow() {
+            Node::Value(res) => res.clone(),
+            _ => todo!(),
+        }
     }
 
-    pub fn eval_decls(
+    pub fn eval_node(&self, node: &Node) -> (Node, Vec<NodeRef>) {
+        match node {
+            Node::Value(_) => unreachable!(),
+
+            Node::Bottom => todo!(),
+
+            Node::Declarations(decls, env) => self.eval_ast_decls(decls.clone(), env.clone()),
+            Node::Expr(expr, env) => self.eval_ast_expr(expr, env.clone()),
+
+            Node::Struct(edges, embeddings) => self.eval_struct(edges.clone(), embeddings.clone()),
+            Node::List(elems) => self.eval_list(elems.clone()),
+
+            Node::Interpolation(parts) => self.eval_interpolation(parts.clone()),
+            Node::Reference(r) => self.eval_reference(r.clone()),
+            Node::Selector(source, selector) => self.eval_selector(source.clone(), selector),
+            Node::Index(source, index) => self.eval_index(source.clone(), index.clone()),
+            Node::Slice(source, low, high) => self.eval_slice(source.clone(), low.clone(), high.clone()),
+
+            Node::Guard(_, _) => todo!(),
+            Node::For(_, _, _, _) => todo!(),
+        }
+    }
+    pub fn eval_struct(&self, edges: Rc<[Edge]>, embeddings: Rc<[NodeRef]>) -> (Node, Vec<NodeRef>) {
+        (todo!(), vec![])
+    }
+    pub fn eval_list(&self, thing: Rc<[NodeRef]>) -> (Node, Vec<NodeRef>) {
+        (todo!(), vec![])
+    }
+    pub fn eval_interpolation(&self, parts: Rc<[NodeRef]>) -> (Node, Vec<NodeRef>) {
+        (todo!(), vec![])
+    }
+    pub fn eval_reference(&self, reference: NodeRef) -> (Node, Vec<NodeRef>) {
+        (todo!(), vec![])
+    }
+    pub fn eval_selector(&self, source: NodeRef, selector: &Selector) -> (Node, Vec<NodeRef>) {
+        (todo!(), vec![])
+    }
+    pub fn eval_index(&self, source: NodeRef, index: NodeRef) -> (Node, Vec<NodeRef>) {
+        (todo!(), vec![])
+    }
+    pub fn eval_slice(&self, source: NodeRef, low: Option<NodeRef>, high: Option<NodeRef>) -> (Node, Vec<NodeRef>) {
+        (todo!(), vec![])
+    }
+
+    pub fn eval_ast_decls(
         &self,
         decls: Rc<[ast::Declaration]>,
-        scope: MutableScope<Rc<Value>>,
-    ) -> Rc<Value> {
-        let mut current_value = Rc::from(Value::Top);
-
+        env: MutableEnvironment<NodeRef>,
+    ) -> (Node, Vec<NodeRef>) {
+        let inner_env = Environment::as_parent(env);
+        let mut edges = vec![];
+        let mut embeddings = vec![];
+        let mut unfinished = vec![];
         for decl in decls.into_iter() {
             match decl {
                 ast::Declaration::Attribute(_) => todo!(),
                 ast::Declaration::Field(f) => {
-                    // TODO: laziness?
-                    let field = self.eval_field(&f, scope.clone());
-
-                    current_value = current_value.meet(Value::Struct([field].into()).into());
+                    let edge = self.eval_ast_edge(f, inner_env.clone());
+                    unfinished.push(edge.value.clone()); // how/when should bulk field be evaluated?
+                    edges.push(edge);
                 }
                 ast::Declaration::Alias(_) => todo!(),
                 ast::Declaration::Comprehension(_) => todo!(),
                 ast::Declaration::Ellipsis(_) => todo!(),
                 ast::Declaration::LetClause(_) => todo!(),
-                ast::Declaration::Embedding(e) => {
-                    current_value =
-                        current_value.meet(self.eval_expr(e, Scope::as_parent(scope.clone())))
+                ast::Declaration::Embedding(expr) => {
+                    let expr_node = Node::Expr(expr.clone(), inner_env.clone()).into_ref();
+                    embeddings.push(expr_node.clone());
+                    unfinished.push(expr_node.clone());
                 }
             }
         }
-
-        current_value
+        return (Node::Struct(edges.into(), embeddings.into()), unfinished)
     }
 
-    pub fn eval_field(&self, field: &ast::Field, scope: MutableScope<Rc<Value>>) -> Field {
+    pub fn eval_ast_edge(&self, field: &ast::Field, env: MutableEnvironment<NodeRef>) -> Edge {
+        let value = Node::Expr(field.value.clone(), env.clone()).into_ref();
+
         let label = match &field.label {
             ast::Label::Ident(n, lm) => {
-                // scope.borrow_mut().set(n.clone(), RefCelPlaceholdervalue); // TODO
+                env.borrow_mut().set(n.clone(), value.clone());
                 Label::Single(n.name.clone(), n.kind, lm.clone())
             }
-            ast::Label::Alias(_, _) => todo!(),
-            ast::Label::String(str, lm) => Label::Single(
-                self.eval_interpolation(str.clone(), Scope::as_parent(scope.clone())),
-                None,
-                lm.clone(),
-            ),
-            ast::Label::Paren(expr, lm) => {
-                match self
-                    .eval_expr(&expr, Scope::as_parent(scope.clone()))
-                    .as_ref()
-                {
-                    Value::String(Some(v)) => Label::Single(v.clone(), None, lm.clone()),
-                    _ => todo!(),
-                }
-            }
-            ast::Label::Bracket(expr) => {
-                let label_expr = if let ast::Expr::Alias(alias) = expr {
-                    let inner = self.eval_expr(&alias.expr, Scope::as_parent(scope.clone()));
-                    scope.borrow_mut().set(alias.ident.clone(), inner.clone());
-                    inner
-                } else {
-                    self.eval_expr(&expr, Scope::as_parent(scope.clone()))
-                };
-                Label::Bulk(label_expr).into()
-            }
+            _ => todo!(),
+            // ast::Label::Alias(_, _) => todo!(),
+            // ast::Label::String(str, lm) => Label::Single(
+            //     self.eval_interpolation(str.clone(), env.clone()),
+            //     None,
+            //     lm.clone(),
+            // ),
+            // ast::Label::Paren(expr, lm) => {
+            //     match self.eval_expr(&expr, env.clone())
+            //     {
+            //         Value::String(Some(v)) => Label::Single(v.clone(), None, lm.clone()), // TODO
+            //         _ => todo!(),
+            //     }
+            // }
+            // ast::Label::Bracket(expr) => {
+            //     let label_expr = if let ast::Expr::Alias(alias) = expr {
+            //         let inner = self.eval_expr(&alias.expr, Environment::as_parent(env.clone()));
+            //         env.borrow_mut().set(alias.ident.clone(), inner.clone());
+            //         inner
+            //     } else {
+            //         self.eval_expr(&expr, Environment::as_parent(env.clone()))
+            //     };
+            //     Label::Bulk(label_expr).into()
+            // }
         };
 
-        let value: Rc<Value> = Rc::from(self.eval_expr(&field.value, scope.clone()));
-
-        Field { label, value }
+        Edge { label, value }
     }
 
-    pub fn eval_expr(&self, expr: &ast::Expr, scope: MutableScope<Rc<Value>>) -> Rc<Value> {
+    pub fn eval_ast_expr(&self, expr: &ast::Expr, env: MutableEnvironment<NodeRef>) -> (Node, Vec<NodeRef>) {
         match expr {
             ast::Expr::Alias(_) => todo!(),
             ast::Expr::Comprehension(_) => todo!(),
             ast::Expr::Ident(n) => {
-                if let Some(predeclared) = self.eval_predeclared(n.name.as_ref()) {
-                    predeclared.into()
-                } else if let Some(val) = scope.borrow().get(&n) {
-                    val.clone()
+                if let Some(val) = env.borrow().get(&n) {
+                    (Node::Reference(val.clone()), vec![])
                 } else {
-                    Value::Bottom.into()
+                    (Node::Bottom, vec![])
                 }
             }
             ast::Expr::QualifiedIdent(_, _) => todo!(),
-            ast::Expr::Null => Value::Null.into(),
-            ast::Expr::Bottom => Value::Bottom.into(),
-            ast::Expr::Bool(b) => Value::Bool(Some(*b)).into(),
-            ast::Expr::Int(i) => Value::Int(Some(*i)).into(),
-            ast::Expr::Float(f) => Value::Float(Some(*f)).into(),
+            ast::Expr::Null => (Node::Value(Value::Null.into()), vec![]),
+            ast::Expr::Bottom => (Node::Value(Value::Bottom.into()), vec![]),
+            ast::Expr::Bool(b) => (Node::Value(Value::Bool(Some(*b)).into()), vec![]),
+            ast::Expr::Int(i) => (Node::Value(Value::Int(Some(*i)).into()), vec![]),
+            ast::Expr::Float(f) => (Node::Value(Value::Float(Some(*f)).into()), vec![]),
             ast::Expr::String(s) => match s {
-                ast::Interpolation::Simple(s) => Value::String(Some(s.clone())).into(),
+                ast::Interpolation::Simple(s) => (Node::Value(Value::String(Some(s.clone())).into()), vec![]),
                 ast::Interpolation::Interpolated(_, _) => todo!(),
             },
             ast::Expr::Bytes(s) => match s {
-                ast::Interpolation::Simple(s) => Value::Bytes(Some(s.clone())).into(),
+                ast::Interpolation::Simple(s) => (Node::Value(Value::Bytes(Some(s.clone())).into()), vec![]),
                 ast::Interpolation::Interpolated(_, _) => todo!(),
             },
-            ast::Expr::Struct(s) => self.eval_decls(s.clone(), Scope::as_parent(scope)),
-            ast::Expr::List(l) => Value::List(
-                l.into_iter()
-                    .map(|e| self.eval_expr(e, scope.clone()))
-                    .collect(),
-            )
-            .into(),
+            ast::Expr::Struct(s) => self.eval_ast_decls(s.clone(), Environment::as_parent(env)),
+            ast::Expr::List(l) => {
+                let nodes: Vec<_> = l.into_iter()
+                    .map(|e| Node::Expr(e.clone(), env.clone()).into_ref())
+                    .collect();
+                (Node::List(nodes.clone().into()), nodes)
+            },
             ast::Expr::Ellipsis(_) => todo!(),
             ast::Expr::UnaryExpr(_, _) => todo!(),
             ast::Expr::BinaryExpr(lhs, op, rhs) => {
-                let lval = self.eval_expr(lhs, scope.clone());
-                let rval = self.eval_expr(rhs, scope.clone());
+                let lval = self.eval_ast_expr(lhs, env.clone());
+                let rval = self.eval_ast_expr(rhs, env.clone());
 
                 match op {
-                    ast::Operator::Conjunct => lval.meet(rval),
-                    ast::Operator::Disjunct => lval.join(rval),
+                    // ast::Operator::Conjunct => lval.meet(rval),
+                    // ast::Operator::Disjunct => lval.join(rval),
 
                     _ => todo!(),
                 }
             }
-            ast::Expr::Parens(e) => self.eval_expr(e, scope),
-            ast::Expr::Selector(e, label) => {
-                let expr = self.eval_expr(e, scope.clone());
-                match expr.as_ref() {
-                    Value::Struct(fields) => fields
-                        .iter()
-                        .find_map(|f| match (&f.label, label.as_ref()) {
-                            (Label::Single(i, ik, _), ast::Label::Ident(id, _))
-                                if *i == id.name && *ik == id.kind =>
-                            {
-                                Some(f.value.clone())
-                            }
-                            (Label::Single(i, None, _), ast::Label::String(str, _))
-                                if *i == self.eval_interpolation(str.clone(), scope.clone()) =>
-                            {
-                                Some(f.value.clone())
-                            }
-                            _ => None,
-                        })
-                        .unwrap_or(Value::Bottom.into()),
-                    _ => Value::Bottom.into(),
+            ast::Expr::Parens(e) => self.eval_ast_expr(e, env),
+            ast::Expr::Selector(e, selector) => {
+                let source = Node::Expr(*e.clone(), env.clone()).into_ref();
+                match *selector.clone() {
+                    ast::Selector::Ident(i) => {
+                        (Node::Selector(source.clone(), Selector::Ident(i)), vec![source.clone()])
+                    },
+                    ast::Selector::String(s) => {
+                        // :(
+                        let (interpolation, more) = self.eval_ast_interpolation(s, env.clone());
+                        let interpolation_ref = interpolation.into_ref();
+                        let mut even_more = vec![source.clone(), interpolation_ref.clone()];
+                        even_more.extend(more);
+                        (Node::Selector(source.clone(), Selector::Interpolation(interpolation_ref.clone())), even_more)
+                    },
                 }
             }
             ast::Expr::Index(_, _) => todo!(),
@@ -159,45 +249,43 @@ impl Interpreter {
         }
     }
 
-    pub fn eval_interpolation(
+    pub fn eval_ast_interpolation(
         &self,
         _str: ast::Interpolation,
-        _scope: MutableScope<Rc<Value>>,
-    ) -> Rc<str> {
+        _env: MutableEnvironment<NodeRef>,
+    ) -> (Node, Vec<NodeRef>) {
         todo!()
     }
 
-    fn eval_predeclared(&self, name: &str) -> Option<Value> {
+    fn init_predeclared(env: MutableEnvironment<NodeRef>) {
         // https://cuelang.org/docs/references/spec/#predeclared-identifiers
-        match name {
-            "bool" => Some(cue_val!((bool))),
-            "int" => Some(cue_val!((int))),
-            "float" => Some(cue_val!((float))),
-            "string" => Some(cue_val!((string))),
-            "bytes" => Some(cue_val!((bytes))),
+        let predeclared = vec![
+            ("bool", cue_val!((bool))),
+            ("int", cue_val!((int))),
+            ("float", cue_val!((float))),
+            ("string", cue_val!((string))),
+            ("bytes", cue_val!((bytes))),
 
-            "number" => Some(cue_val!((int) | (float))),
-            "uint" => Some(cue_val!((>=0))),
-            "uint8" => Some(cue_val!((>=0) & (<=255))),
-            "int8" => Some(cue_val!((>=-128) & (<=127))),
-            "uint16" => Some(cue_val!((>=0) & (<=65535))),
-            "int16" => Some(cue_val!((>=-32_768) & (<=32_767))),
-            "rune" => Some(cue_val!((>=0) & (<=0x10FFFF))),
-            "uint32" => Some(cue_val!((>=0) & (<=4_294_967_295))),
-            "int32" => Some(cue_val!((>=-2_147_483_648) & (<=2_147_483_647))),
-            // "uint64" => Some(cue_val!((>=0)
-            //                    & (<=18_446_744_073_709_551_615))), // TODO
-            "int64" => Some(cue_val!((>=-9_223_372_036_854_775_808)
-                                    & (<=9_223_372_036_854_775_807))),
-            // "uint128" => Some(cue_val!((>=0)
-            //                    & (<=340_282_366_920_938_463_463_374_607_431_768_211_455))), // TODO
-            // "int128" => Some(cue_val!((>=-170_141_183_460_469_231_731_687_303_715_884_105_728)
-            //                     & (<=170_141_183_460_469_231_731_687_303_715_884_105_727))), // TODO
-            "float32" => Some(cue_val!((>=-3.40282346638528859811704183484516925440e+38)
-                                    & (<=3.40282346638528859811704183484516925440e+38))),
-            "float64" => Some(cue_val!((>=-1.797693134862315708145274237317043567981e+308)
-                                    & (<=1.797693134862315708145274237317043567981e+308))),
-            _ => None,
+            ("number", cue_val!((int) | (float))),
+            ("uint", cue_val!((>=0))),
+            ("uint8", cue_val!((>=0) & (<=255))),
+            ("int8", cue_val!((>=-128) & (<=127))),
+            ("uint16", cue_val!((>=0) & (<=65535))),
+            ("int16", cue_val!((>=-32_768) & (<=32_767))),
+            ("rune", cue_val!((>=0) & (<=0x10FFFF))),
+            ("uint32", cue_val!((>=0) & (<=4_294_967_295))),
+            ("int32", cue_val!((>=-2_147_483_648) & (<=2_147_483_647))),
+            // ("uint64", cue_val!((>=0) & (<=18_446_744_073_709_551_615))), // TODO
+            ("int64", cue_val!((>=-9_223_372_036_854_775_808) & (<=9_223_372_036_854_775_807))),
+            // ("uint128", cue_val!((>=0) & (<=340_282_366_920_938_463_463_374_607_431_768_211_455))), // TODO
+            // ("int128", cue_val!((>=-170_141_183_460_469_231_731_687_303_715_884_105_728) & (<=170_141_183_460_469_231_731_687_303_715_884_105_727))), // TODO
+            ("float32", cue_val!((>=-3.40282346638528859811704183484516925440e+38) & (<=3.40282346638528859811704183484516925440e+38))),
+            ("float64", cue_val!((>=-1.797693134862315708145274237317043567981e+308) & (<=1.797693134862315708145274237317043567981e+308))),
+        ];
+
+        let mut s = env.borrow_mut();
+        for (name, val) in predeclared.into_iter() {
+            s.set(ast::Ident {name: name.into(), kind: None}, Node::Value(val.into()).into_ref())
         }
     }
 }
@@ -217,17 +305,17 @@ fn test_source_file() {
     assert_eq!(
         eval_str(
             "{
-                    a: 1
-                    b: 2
-                }"
+                a: 1
+                b: 2
+            }"
         ),
         cue_val!({(a): (1), (b): (2)}).into()
     );
     assert_eq!(
         eval_str(
             r#"{
-                    a: "a"
-                    b: "b"
+                a: "a"
+                b: "b"
                 [x="c"]: x
             }"#
         ),

@@ -19,7 +19,7 @@ pub enum Expr {
     UnaryExpr(Operator, Box<Expr>),
     BinaryExpr(Box<Expr>, Operator, Box<Expr>),
     Parens(Box<Expr>),
-    Selector(Box<Expr>, Box<Label>),
+    Selector(Box<Expr>, Box<Selector>),
     Index(Box<Expr>, Box<Expr>),
     Slice(Box<Expr>, Option<Box<Expr>>, Option<Box<Expr>>),
     Call(Box<Expr>, Rc<[Expr]>),
@@ -124,6 +124,12 @@ pub enum Label {
     String(Interpolation, Option<LabelModifier>),
     Paren(Expr, Option<LabelModifier>),
     Bracket(Expr),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum Selector {
+    Ident(Ident),
+    String(Interpolation),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -289,7 +295,7 @@ impl Expr {
     pub fn parens(inner: Expr) -> Self {
         Self::Parens(Box::new(inner))
     }
-    pub fn selector(source: Expr, field: Label) -> Self {
+    pub fn selector(source: Expr, field: Selector) -> Self {
         Self::Selector(Box::new(source), Box::new(field))
     }
     pub fn index(source: Expr, index: Expr) -> Self {

@@ -1,27 +1,42 @@
 use crate::ast::Ident;
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-pub type MutableScope<T> = Rc<RefCell<Scope<T>>>;
+pub type MutableEnvironment<T> = Rc<RefCell<Environment<T>>>;
 
 #[derive(Debug, PartialEq, Clone, Default)]
-pub struct Scope<T> {
-    parent: Option<MutableScope<T>>,
+pub struct Environment<T> {
+    parent: Option<MutableEnvironment<T>>,
     items: HashMap<Ident, T>,
 }
 
-impl<T: Clone> Scope<T> {
-    pub fn new() -> MutableScope<T> {
+#[derive(Debug, PartialEq, Clone)]
+pub struct EnvironmentRef<'a, T> {
+    inner: &'a Environment<T>
+}
+
+impl<'a, T: Clone> EnvironmentRef<'a, T> {
+    pub fn get(&self, ident: &Ident) -> Option<T> {
+        self.inner.get(ident)
+    }
+}
+
+impl<T: Clone> Environment<T> {
+    pub fn new() -> MutableEnvironment<T> {
         Rc::new(RefCell::new(Self {
             parent: None,
             items: HashMap::new(),
         }))
     }
 
-    pub fn as_parent(outer: MutableScope<T>) -> MutableScope<T> {
+    pub fn as_parent(outer: MutableEnvironment<T>) -> MutableEnvironment<T> {
         Rc::new(RefCell::new(Self {
             parent: Some(outer),
             items: HashMap::new(),
         }))
+    }
+
+    pub fn as_env_ref(&self) -> EnvironmentRef<T> {
+        return EnvironmentRef { inner: &self }
     }
 
     pub fn get(&self, ident: &Ident) -> Option<T> {
@@ -38,3 +53,4 @@ impl<T: Clone> Scope<T> {
         self.items.insert(ident, object);
     }
 }
+

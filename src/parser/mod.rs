@@ -396,10 +396,10 @@ impl CUEParser {
             [PackageName(p), identifier(i)] => ast::Expr::QualifiedIdent(p, i)
         }))
     }
-    fn Selector(input: Pair<Rule>) -> Result<ast::Label, Error> {
+    fn Selector(input: Pair<Rule>) -> Result<ast::Selector, Error> {
         Ok(match_pairs!(input.into_inner(), {
-            [identifier(i)] => ast::Label::Ident(i, None),
-            [string_lit_simple(s)] => ast::Label::String(s?, None),
+            [identifier(i)] => ast::Selector::Ident(i),
+            [string_lit_simple(s)] => ast::Selector::String(s?),
         }))
     }
     fn Index(input: Pair<Rule>) -> Result<ast::Expr, Error> {
