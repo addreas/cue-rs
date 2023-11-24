@@ -2,8 +2,10 @@ use std::{fmt::Debug, fmt::Display, rc::Rc};
 
 use regex::Regex;
 
+use crate::ast;
+
 use super::adt::op::RelOp;
-use super::ast::{IdentKind, LabelModifier};
+use super::ast::{IdentKind, FieldConstraint};
 use super::match_basic;
 
 
@@ -14,12 +16,12 @@ pub enum Value {
     Disjunction(Rc<[Rc<Value>]>),
     Conjunction(Rc<[Rc<Value>]>),
 
-    Struct(Rc<[Field]>),
+    Struct(Rc<[Field]>, bool),
     List(Rc<[Rc<Value>]>),
 
     String(Option<Rc<str>>),
-    // StringInterpolation(Rc<[Rc<str>]>, Rc<[Rc<Value>]>),
     Bytes(Option<Rc<str>>),
+    // StringInterpolation(Rc<[Rc<str>]>, Rc<[Rc<Value>]>),
     // BytesInterpolation(Rc<[Rc<str>]>, Rc<[Rc<Value>]>),
 
     Bound(RelOp, Rc<Value>),
@@ -32,19 +34,25 @@ pub enum Value {
     Null,
 
     Bottom,
+
+    // Reference(??) ??
+    // Unresolved(ast::Expr) ??
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Label {
-    Single(Rc<str>, Option<IdentKind>, Option<LabelModifier>),
-    Bulk(Rc<Value>),
+pub enum Field {
+    Defined(FieldName, Rc<Value>),
+    Constrained(FieldName, Option<FieldConstraint>, Rc<Value>),
+    Pattern(Rc<Value>, fn(Rc<str>) -> Rc<Value>),
+    Embedding(Rc<Value>),
+
+    // Default(Rc<Value>),
 }
 
-
 #[derive(Debug, PartialEq, Clone)]
-pub struct Field {
-    pub label: Label,
-    pub value: Rc<Value>,
+pub enum FieldName {
+    Ident(ast::Ident),
+    String(Rc<str>),
 }
 
 impl Value {
@@ -364,9 +372,8 @@ impl Value {
 
 impl Field {
     fn visible(&self) -> bool {
-        match self.label {
-            Label::Single(_, None, None) => true,
-            Label::Single(_, None, Some(LabelModifier::Required)) => true,
+        match self {
+            Field::Defined(_, _) => true,
             _ => false,
         }
     }
@@ -823,8 +830,8 @@ impl Display for Field {
                 };
                 let postfix = match label_modifier {
                     None => "",
-                    Some(LabelModifier::Optional) => "?",
-                    Some(LabelModifier::Required) => "!",
+                    Some(FieldConstraint::Optional) => "?",
+                    Some(FieldConstraint::Required) => "!",
                 };
                 write!(f, "{}{}{}: {}", prefix, n, postfix, self.value)
             },

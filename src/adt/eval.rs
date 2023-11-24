@@ -1,7 +1,7 @@
 use crate::{
     adt::environment::{MutableEnvironment, Environment},
     ast, cue_val,
-    value::{Field, Label, Value},
+    value::{Field, Value},
 };
 use std::{rc::Rc, cell::RefCell};
 
@@ -32,9 +32,10 @@ impl Node {
 }
 
 #[derive(Debug, Clone)]
-pub struct Edge {
-    label: Label,
-    value: NodeRef,
+pub enum Edge {
+    Defined(ast::Ident, NodeRef),
+    Constrained(ast::Ident, Option<ast::FieldConstraint>, NodeRef),
+    Pattern(NodeRef, NodeRef),
 }
 
 #[derive(Debug, Clone)]

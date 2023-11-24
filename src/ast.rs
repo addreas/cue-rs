@@ -119,11 +119,11 @@ pub struct LetClause {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Label {
-    Ident(Ident, Option<LabelModifier>),
     Alias(Ident, Box<Label>),
-    String(Interpolation, Option<LabelModifier>),
-    Paren(Expr, Option<LabelModifier>),
-    Bracket(Expr),
+    Ident(Ident, Option<FieldConstraint>),
+    String(Interpolation, Option<FieldConstraint>),
+    Dynamic(Expr, Option<FieldConstraint>),
+    Pattern(Expr),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -133,7 +133,7 @@ pub enum Selector {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum LabelModifier {
+pub enum FieldConstraint {
     Optional,
     Required,
 }
@@ -186,11 +186,11 @@ impl Label {
     pub fn string_interpolation(strings: Rc<[Rc<str>]>, interpolations: Rc<[Expr]>) -> Self {
         Self::String(Interpolation::Interpolated(strings, interpolations), None)
     }
-    pub fn paren(x: Expr) -> Self {
-        Self::Paren(x, None)
+    pub fn dynamic(x: Expr) -> Self {
+        Self::Dynamic(x, None)
     }
-    pub fn bracket(x: Expr) -> Self {
-        Self::Bracket(x)
+    pub fn pattern(x: Expr) -> Self {
+        Self::Pattern(x)
     }
 }
 

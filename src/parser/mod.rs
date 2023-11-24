@@ -325,16 +325,16 @@ impl CUEParser {
             [string_lit_simple(s)] => ast::Label::String(s?, None),
             [string_lit_simple(s), LabelModifier(m)] => ast::Label::String(s?, Some(m?)),
 
-            [AliasExpr(a)] => ast::Label::Bracket(a?),
+            [AliasExpr(a)] => ast::Label::Pattern(a?),
 
-            [Expression(e)] => ast::Label::Paren(e?, None),
-            [Expression(e), LabelModifier(m)] => ast::Label::Paren(e?, Some(m?)),
+            [Expression(e)] => ast::Label::Dynamic(e?, None),
+            [Expression(e), LabelModifier(m)] => ast::Label::Dynamic(e?, Some(m?)),
         }))
     }
-    fn LabelModifier(input: Pair<Rule>) -> Result<ast::LabelModifier, Error> {
+    fn LabelModifier(input: Pair<Rule>) -> Result<ast::FieldConstraint, Error> {
         match input.as_str() {
-            "?" => Ok(ast::LabelModifier::Optional),
-            "!" => Ok(ast::LabelModifier::Required),
+            "?" => Ok(ast::FieldConstraint::Optional),
+            "!" => Ok(ast::FieldConstraint::Required),
             _ => unreachable!("unknown label modifier {}", input),
         }
     }
@@ -877,7 +877,7 @@ fn test_label() {
     );
     assert_eq!(
         parse_single!(Label, "(parenthesis)"),
-        Ok(ast::Label::Paren(
+        Ok(ast::Label::Dynamic(
             ast::Expr::Ident(ast::Ident {
                 name: "parenthesis".into(),
                 kind: None
@@ -887,7 +887,7 @@ fn test_label() {
     );
     assert_eq!(
         parse_single!(Label, "[brackets=string]"),
-        Ok(ast::Label::bracket(ast::Expr::alias(
+        Ok(ast::Label::pattern(ast::Expr::alias(
             ast::Ident::from("brackets"),
             ast::Expr::ident("string".into())
         ))),
