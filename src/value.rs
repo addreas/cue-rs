@@ -5,9 +5,8 @@ use regex::Regex;
 use crate::ast;
 
 use super::adt::op::RelOp;
-use super::ast::{IdentKind, FieldConstraint};
+use super::ast::{FieldConstraint, IdentKind};
 use super::match_basic;
-
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Value {
@@ -45,7 +44,6 @@ pub enum Field {
     Constrained(FieldName, Option<FieldConstraint>, Rc<Value>),
     Pattern(Rc<Value>, fn(Rc<str>) -> Rc<Value>),
     Embedding(Rc<Value>),
-
     // Default(Rc<Value>),
 }
 
@@ -94,11 +92,11 @@ impl Value {
             (Self::Bound(op, a), _) => Self::meet_bound(op, a.clone(), other),
             (_, Self::Bound(op, b)) => Self::meet_bound(op, b.clone(), self),
 
-            (Self::Struct(lhs), Self::Struct(rhs)) => Self::meet_structs(lhs.clone(), rhs.clone()).into(),
+            (Self::Struct(lhs, _), Self::Struct(rhs, _)) => Self::meet_structs(lhs.clone(), rhs.clone()).into(),
             (Self::List(lhs), Self::List(rhs)) => Self::meet_lists(lhs.clone(), rhs.clone()).into(),
 
-            (Self::Struct(fields), _) if fields.iter().all(Field::visible) => Self::Disjunction([Self::Struct(fields.clone()).into(), other].into()).into(),
-            (_, Self::Struct(fields)) if fields.iter().all(Field::visible) => Self::Disjunction([Self::Struct(fields.clone()).into(), self].into()).into(),
+            (Self::Struct(fields, _), _) if fields.iter().all(Field::visible) => Self::Disjunction([Self::Struct(fields.clone(), false).into(), other].into()).into(),
+            (_, Self::Struct(fields, _)) if fields.iter().all(Field::visible) => Self::Disjunction([Self::Struct(fields.clone(), false).into(), self].into()).into(),
 
             (_, _) => Self::Bottom.into(), // probably some TODOs here
         }
@@ -144,6 +142,7 @@ impl Value {
     }
 
     fn meet_bound(op: &RelOp, bounding: Rc<Self>, constrained: Rc<Self>) -> Rc<Self> {
+        #[rustfmt::skip]
         match (bounding.as_ref(), constrained.as_ref()) {
 
             (Self::Int(_), Self::Int(None)) => Self::Bound(*op, bounding).into(),
@@ -210,6 +209,7 @@ impl Value {
     }
 
     fn join_bound(op: &RelOp, bounding: Rc<Self>, constrained: Rc<Self>) -> Rc<Self> {
+        #[rustfmt::skip]
         match (bounding.as_ref(), constrained.as_ref()) {
             (Self::Int(a), Self::Int(b)) if *op == RelOp::NotEqual && a == b => Self::Int(None).into(),
             (Self::Float(a), Self::Float(b)) if *op == RelOp::NotEqual && a == b => Self::Float(None).into(),
@@ -321,13 +321,14 @@ impl Value {
             });
         }
         for f in rhs.iter() {
-            if lhs.iter().any(|ff| ff.label == f.label) { // TODO: consider bulk fields
+            if lhs.iter().any(|ff| ff.label == f.label) {
+                // TODO: consider bulk fields
                 continue;
             }
             fields.push(f.clone())
         }
 
-        Self::Struct(fields.into())
+        Self::Struct(fields.into(), false)
     }
 
     fn meet_lists(lhs: Rc<[Rc<Value>]>, rhs: Rc<[Rc<Value>]>) -> Value {
@@ -344,9 +345,16 @@ impl Value {
     }
 
     fn meet_disjunction(items: Rc<[Rc<Value>]>, operand: Rc<Value>) -> Rc<Value> {
-        let res: Rc<[_]> = items.into_iter().map(|i| i.clone().meet(operand.clone())).collect();
+        let res: Rc<[_]> = items
+            .into_iter()
+            .map(|i| i.clone().meet(operand.clone()))
+            .collect();
 
-        let non_bottoms: Rc<[_]> = res.into_iter().filter(|i| !i.is_bottom()).map(|i| i.clone()).collect();
+        let non_bottoms: Rc<[_]> = res
+            .into_iter()
+            .filter(|i| !i.is_bottom())
+            .map(|i| i.clone())
+            .collect();
 
         match &non_bottoms[..] {
             [] => Self::Bottom.into(),
@@ -383,7 +391,7 @@ impl Field {
 fn test_basic_meets() {
     use crate::assert_cue;
 
-    assert_cue!((_) & (_|_) == (_|_));
+    assert_cue!((_) & (_ | _) == (_ | _));
     assert_cue!((_) & (null) == (null));
     assert_cue!((_) & (bool) == (bool));
     assert_cue!((_) & (true) == (true));
@@ -682,7 +690,7 @@ fn test_list_infimum() {
     use crate::assert_cue;
 
     assert_cue!(([]) & ([]) == ([]));
-    assert_cue!(([]) & ([(1), (2), (3)]) == (_|_));
+    assert_cue!(([]) & ([(1), (2), (3)]) == (_ | _));
     assert_cue!(([(int), (bool), (string)]) & ([(1), (bool), (=~"hello")]) == ([(1), (bool), (=~"hello")]));
 }
 
@@ -691,7 +699,7 @@ fn test_disjunct_infimum() {
     use crate::assert_cue;
 
     assert_cue!(((string) | (int) | (bool)) & (int) == (int));
-    assert_cue!(((string) | (int) | (bool)) & (null) == (_|_));
+    assert_cue!(((string) | (int) | (bool)) & (null) == (_ | _));
     assert_cue!(((string) | (int) | (bool)) & (>2) == (>2));
     assert_cue!(((string) | (int) | (bool)) & (2) == (2));
     assert_cue!(((string) | (int) | (bool)) & ((2) | (true)) == ((2) | (true)));
@@ -791,9 +799,10 @@ impl Display for Value {
             Value::Disjunction(items) => write_separated!(items, " | "),
             Value::Conjunction(items) => write_separated!(items, " & "),
 
-            Value::Struct(items) => write_separated!(items, "{", ",\n", "}"),
+            Value::Struct(items, _) => write_separated!(items, "{", ",\n", "}"),
 
-            Value::List(items) => write_separated!(items, "[", ",\n", "]"),
+            // Value::List(items) => write_separated!(items, "[", ",\n", "]"),
+            Value::List(items) => f.debug_list().entries(items.iter()).finish(),
 
             Value::String(None) => write!(f, "string"),
             Value::Bytes(None) => write!(f, "bytes"),
@@ -820,22 +829,38 @@ impl Display for Value {
 
 impl Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.label.clone() {
-            Label::Single(n, label_type, label_modifier) => {
-                let prefix = match label_type {
-                    None => "",
-                    Some(IdentKind::Hidden) => "_",
-                    Some(IdentKind::Definition) => "#",
-                    Some(IdentKind::HiddenDefinition) => "_#",
+        match self {
+            Field::Defined(_, _) => todo!(),
+            Field::Constrained(key, constraint, val) => {
+                let name = match key {
+                    FieldName::Ident(ident) => {
+                        format!(
+                            "{}{}",
+                            match ident.kind {
+                                None => "",
+                                Some(IdentKind::Hidden) => "_",
+                                Some(IdentKind::Definition) => "#",
+                                Some(IdentKind::HiddenDefinition) => "_#",
+                            },
+                            ident.name
+                        )
+                    }
+                    FieldName::String(s) => format!(r#""{}""#, s),
                 };
-                let postfix = match label_modifier {
+                let postfix = match constraint {
                     None => "",
                     Some(FieldConstraint::Optional) => "?",
                     Some(FieldConstraint::Required) => "!",
                 };
-                write!(f, "{}{}{}: {}", prefix, n, postfix, self.value)
-            },
-            Label::Bulk(expr) => write!(f, "[{}]: {}", expr, self.value),
+                write!(f, "{}{}: {}", name, postfix, val)
+            }
+            Field::Pattern(pat, val) => write!(f, "[{}]: {}", pat, val("".into())),
+            Field::Embedding(v) => Display::fmt(v, f),
         }
+        // match self.label.clone() {
+        //     Label::Single(n, label_type, label_modifier) => {
+        //     },
+        //     Label::Bulk(expr) => write!(f, "[{}]: {}", expr, self.value),
+        // }
     }
 }
