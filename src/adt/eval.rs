@@ -5,9 +5,9 @@ use crate::{
 };
 use std::{rc::Rc, cell::RefCell};
 
-type NodeRef = Rc<RefCell<Node>>;
+pub type NodeRef = Rc<RefCell<Node>>;
 #[derive(Debug, Clone)]
-enum Node {
+pub enum Node {
     Bottom,
     Value(Rc<Value>),
 
@@ -32,13 +32,13 @@ impl Node {
 }
 
 #[derive(Debug, Clone)]
-struct Edge {
+pub struct Edge {
     label: Label,
     value: NodeRef,
 }
 
 #[derive(Debug, Clone)]
-enum Selector {
+pub enum Selector {
     Ident(ast::Ident),
     Interpolation(NodeRef)
 }
@@ -47,6 +47,7 @@ pub struct Interpreter {}
 
 impl Interpreter {
     pub fn eval(source: ast::SourceFile) -> Rc<Value> {
+        println!("eval");
         let interpreter = Interpreter {};
         let env = Environment::new();
         Self::init_predeclared(env.clone());
@@ -55,21 +56,25 @@ impl Interpreter {
         let mut unfinished = vec![result.clone()];
         while let Some(next) = unfinished.pop() {
             let (result, more) = interpreter.eval_node(&next.borrow());
-            unfinished.extend(more);
             match result {
                 Node::Value(_) => {},
                 _ => unfinished.push(next.clone()),
             };
+            unfinished.extend(more);
             next.replace(result);
         }
 
         match &*result.clone().borrow() {
             Node::Value(res) => res.clone(),
-            _ => todo!(),
+            e => {
+                println!("e: {e:?}");
+                todo!()
+            },
         }
     }
 
     pub fn eval_node(&self, node: &Node) -> (Node, Vec<NodeRef>) {
+        println!("eval_node");
         match node {
             Node::Value(_) => unreachable!(),
 
@@ -92,24 +97,58 @@ impl Interpreter {
         }
     }
     pub fn eval_struct(&self, edges: Rc<[Edge]>, embeddings: Rc<[NodeRef]>) -> (Node, Vec<NodeRef>) {
-        (todo!(), vec![])
+        println!("eval_struct");
+        let fields: Vec<_> = edges.iter().map(|e| match &*e.value.borrow() {
+            Node::Value(v) => Some(Field { label: e.label.clone(), value: v.clone() }),
+            _ => None
+        }).collect();
+        let embeds: Vec<_> = embeddings.iter().map(|e| match &*e.borrow() {
+            Node::Value(v) => Some(v.clone()),
+            _ => None
+        }).collect();
+
+        println!("fields: {fields:?}");
+        println!("embeds: {embeds:?}");
+        if fields.iter().all(Option::is_some) && embeds.iter().all(Option::is_some) {
+            let actual_fields = fields.into_iter().map(Option::unwrap).collect();
+            let mut val = Rc::from(Value::Struct(actual_fields));
+
+            if let Some(v) = embeds.into_iter().map(Option::unwrap).reduce(|e, v| e.meet(v)) {
+                val = val.meet(v);
+            };
+
+            return (Node::Value(val), vec![])
+        }
+        (Node::Struct(edges, embeddings), vec![])
     }
+
     pub fn eval_list(&self, thing: Rc<[NodeRef]>) -> (Node, Vec<NodeRef>) {
+        println!("eval_list");
         (todo!(), vec![])
     }
+
     pub fn eval_interpolation(&self, parts: Rc<[NodeRef]>) -> (Node, Vec<NodeRef>) {
+        println!("eval_interpolation");
         (todo!(), vec![])
     }
+
     pub fn eval_reference(&self, reference: NodeRef) -> (Node, Vec<NodeRef>) {
+        println!("eval_reference");
         (todo!(), vec![])
     }
+
     pub fn eval_selector(&self, source: NodeRef, selector: &Selector) -> (Node, Vec<NodeRef>) {
+        println!("eval_selector");
         (todo!(), vec![])
     }
+
     pub fn eval_index(&self, source: NodeRef, index: NodeRef) -> (Node, Vec<NodeRef>) {
+        println!("eval_index");
         (todo!(), vec![])
     }
+
     pub fn eval_slice(&self, source: NodeRef, low: Option<NodeRef>, high: Option<NodeRef>) -> (Node, Vec<NodeRef>) {
+        println!("eval_slice");
         (todo!(), vec![])
     }
 
@@ -118,6 +157,7 @@ impl Interpreter {
         decls: Rc<[ast::Declaration]>,
         env: MutableEnvironment<NodeRef>,
     ) -> (Node, Vec<NodeRef>) {
+        println!("eval_ast_decls");
         let inner_env = Environment::as_parent(env);
         let mut edges = vec![];
         let mut embeddings = vec![];
@@ -145,6 +185,7 @@ impl Interpreter {
     }
 
     pub fn eval_ast_edge(&self, field: &ast::Field, env: MutableEnvironment<NodeRef>) -> Edge {
+        println!("eval_ast_edge");
         let value = Node::Expr(field.value.clone(), env.clone()).into_ref();
 
         let label = match &field.label {
@@ -152,7 +193,6 @@ impl Interpreter {
                 env.borrow_mut().set(n.clone(), value.clone());
                 Label::Single(n.name.clone(), n.kind, lm.clone())
             }
-            _ => todo!(),
             // ast::Label::Alias(_, _) => todo!(),
             // ast::Label::String(str, lm) => Label::Single(
             //     self.eval_interpolation(str.clone(), env.clone()),
@@ -174,14 +214,17 @@ impl Interpreter {
             //     } else {
             //         self.eval_expr(&expr, Environment::as_parent(env.clone()))
             //     };
+
             //     Label::Bulk(label_expr).into()
             // }
+            _ => todo!(),
         };
 
         Edge { label, value }
     }
 
     pub fn eval_ast_expr(&self, expr: &ast::Expr, env: MutableEnvironment<NodeRef>) -> (Node, Vec<NodeRef>) {
+        println!("eval_ast_expr");
         match expr {
             ast::Expr::Alias(_) => todo!(),
             ast::Expr::Comprehension(_) => todo!(),
@@ -254,6 +297,7 @@ impl Interpreter {
         _str: ast::Interpolation,
         _env: MutableEnvironment<NodeRef>,
     ) -> (Node, Vec<NodeRef>) {
+        println!("eval_ast_interpolation");
         todo!()
     }
 
