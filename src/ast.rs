@@ -132,7 +132,7 @@ pub enum Selector {
     String(Interpolation),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum FieldConstraint {
     Optional,
     Required,

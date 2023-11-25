@@ -1,7 +1,7 @@
 use crate::{
     adt::environment::{MutableEnvironment, Environment},
     ast, cue_val,
-    value::{Field, Value},
+    value::{Field, Value, FieldName},
 };
 use std::{rc::Rc, cell::RefCell};
 
@@ -34,7 +34,7 @@ impl Node {
 #[derive(Debug, Clone)]
 pub enum Edge {
     Defined(ast::Ident, NodeRef),
-    Constrained(ast::Ident, Option<ast::FieldConstraint>, NodeRef),
+    Constraint(ast::Ident, ast::FieldConstraint, NodeRef),
     Pattern(NodeRef, NodeRef),
 }
 
@@ -99,8 +99,15 @@ impl Interpreter {
     }
     pub fn eval_struct(&self, edges: Rc<[Edge]>, embeddings: Rc<[NodeRef]>) -> (Node, Vec<NodeRef>) {
         println!("eval_struct");
-        let fields: Vec<_> = edges.iter().map(|e| match &*e.value.borrow() {
-            Node::Value(v) => Some(Field { label: e.label.clone(), value: v.clone() }),
+        let fields: Vec<_> = edges.iter().map(|e| match e {
+            Edge::Defined(name, value) => match &*value.borrow() {
+                Node::Value(v) => Some(Field::Defined(FieldName::Ident(name.clone()), v.clone())),
+                _ => None
+            }
+            Edge::Constraint(name, constraint, value) => match &*value.borrow() {
+                Node::Value(v) => Some(Field::Constraint(FieldName::Ident(name.clone()), constraint.clone(), v.clone())),
+                _ => None
+            }
             _ => None
         }).collect();
         let embeds: Vec<_> = embeddings.iter().map(|e| match &*e.borrow() {
@@ -112,7 +119,7 @@ impl Interpreter {
         println!("embeds: {embeds:?}");
         if fields.iter().all(Option::is_some) && embeds.iter().all(Option::is_some) {
             let actual_fields = fields.into_iter().map(Option::unwrap).collect();
-            let mut val = Rc::from(Value::Struct(actual_fields));
+            let mut val = Rc::from(Value::Struct(actual_fields, false));
 
             if let Some(v) = embeds.into_iter().map(Option::unwrap).reduce(|e, v| e.meet(v)) {
                 val = val.meet(v);
@@ -167,9 +174,10 @@ impl Interpreter {
             match decl {
                 ast::Declaration::Attribute(_) => todo!(),
                 ast::Declaration::Field(f) => {
-                    let edge = self.eval_ast_edge(f, inner_env.clone());
-                    unfinished.push(edge.value.clone()); // how/when should bulk field be evaluated?
-                    edges.push(edge);
+                    let value = Node::Expr(f.value.clone(), inner_env.clone()).into_ref();
+                    unfinished.push(value.clone());
+
+                    edges.push(self.eval_ast_label(&f.label, value.clone(), inner_env.clone()));
                 }
                 ast::Declaration::Alias(_) => todo!(),
                 ast::Declaration::Comprehension(_) => todo!(),
@@ -185,43 +193,24 @@ impl Interpreter {
         return (Node::Struct(edges.into(), embeddings.into()), unfinished)
     }
 
-    pub fn eval_ast_edge(&self, field: &ast::Field, env: MutableEnvironment<NodeRef>) -> Edge {
+    pub fn eval_ast_label(&self, label: &ast::Label, value: NodeRef, env: MutableEnvironment<NodeRef>) -> Edge {
         println!("eval_ast_edge");
-        let value = Node::Expr(field.value.clone(), env.clone()).into_ref();
 
-        let label = match &field.label {
+        match label {
             ast::Label::Ident(n, lm) => {
                 env.borrow_mut().set(n.clone(), value.clone());
-                Label::Single(n.name.clone(), n.kind, lm.clone())
+                if let Some(constraint) = lm {
+                    Edge::Constraint(n.clone(), constraint.clone(), value.clone())
+                } else {
+                    Edge::Defined(n.clone(), value)
+                }
             }
-            // ast::Label::Alias(_, _) => todo!(),
-            // ast::Label::String(str, lm) => Label::Single(
-            //     self.eval_interpolation(str.clone(), env.clone()),
-            //     None,
-            //     lm.clone(),
-            // ),
-            // ast::Label::Paren(expr, lm) => {
-            //     match self.eval_expr(&expr, env.clone())
-            //     {
-            //         Value::String(Some(v)) => Label::Single(v.clone(), None, lm.clone()), // TODO
-            //         _ => todo!(),
-            //     }
-            // }
-            // ast::Label::Bracket(expr) => {
-            //     let label_expr = if let ast::Expr::Alias(alias) = expr {
-            //         let inner = self.eval_expr(&alias.expr, Environment::as_parent(env.clone()));
-            //         env.borrow_mut().set(alias.ident.clone(), inner.clone());
-            //         inner
-            //     } else {
-            //         self.eval_expr(&expr, Environment::as_parent(env.clone()))
-            //     };
-
-            //     Label::Bulk(label_expr).into()
-            // }
+            ast::Label::Alias(alias, label) => {
+                env.borrow_mut().set(alias.clone(), value.clone());
+                self.eval_ast_label(label, value.clone(), env)
+            }
             _ => todo!(),
-        };
-
-        Edge { label, value }
+        }
     }
 
     pub fn eval_ast_expr(&self, expr: &ast::Expr, env: MutableEnvironment<NodeRef>) -> (Node, Vec<NodeRef>) {

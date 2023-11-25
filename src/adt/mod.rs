@@ -68,7 +68,7 @@ macro_rules! cue_val {
     ( $(($($a:tt)+))|+ ) => { crate::value::Value::Disjunction([$( crate::cue_val!($($a)+).into() ),+ ].into()) };
 
     (@field [ $($pat:tt)+ ] : $($val:tt)+ ) => { crate::value::Field::Pattern(crate::cue_val!($($pat)+).into(), |_| crate::cue_val!($($val)+).into()) };
-    (@field $key:ident      : $($val:tt)+ ) => { crate::value::Field::Defined(crate::value::FieldName::String(stringify!($key).into()), crate::cue_val!($($val)+).into()) };
+    (@field $key:ident      : $($val:tt)+ ) => { crate::value::Field::Defined(crate::value::FieldName::Ident(stringify!($key).into()), crate::cue_val!($($val)+).into()) };
     (@field $key:literal    : $($val:tt)+ ) => { crate::value::Field::Defined(crate::value::FieldName::String($key.into()), crate::cue_val!($($val)+).into()) };
     ({ $( ($($key:tt)+) : ($($val:tt)+)),* }) => {
         crate::value::Value::Struct([

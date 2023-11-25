@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::{fmt::Debug, fmt::Display, rc::Rc};
 
 use regex::Regex;
@@ -41,13 +42,13 @@ pub enum Value {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Field {
     Defined(FieldName, Rc<Value>),
-    Constrained(FieldName, Option<FieldConstraint>, Rc<Value>),
+    Constraint(FieldName, FieldConstraint, Rc<Value>),
     Pattern(Rc<Value>, fn(Rc<str>) -> Rc<Value>),
     Embedding(Rc<Value>),
     // Default(Rc<Value>),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum FieldName {
     Ident(ast::Ident),
     String(Rc<str>),
@@ -310,23 +311,43 @@ impl Value {
 
     fn meet_structs(lhs: Rc<[Field]>, rhs: Rc<[Field]>) -> Value {
         let mut fields: Vec<Field> = vec![];
+
         for f in lhs.iter() {
-            let rhs_value = rhs
-                .iter()
-                .find(|ff| ff.label == f.label) // TODO: consider bulk fields
-                .map_or(Self::Top.into(), |ff| ff.value.clone());
-            fields.push(Field {
-                label: f.label.clone(),
-                value: f.value.clone().meet(rhs_value),
-            });
-        }
-        for f in rhs.iter() {
-            if lhs.iter().any(|ff| ff.label == f.label) {
-                // TODO: consider bulk fields
-                continue;
+            match f {
+                Field::Defined(key, value) => {
+                    let rhs_matches = rhs.iter().filter_map(|ff| match ff {
+                        Field::Defined(ffkey, val) if ffkey == key => Some(val.clone()),
+                        Field::Constraint(ffkey, _, val) if ffkey == key => Some(val.clone()),
+                        Field::Pattern(_, _) => todo!(),
+                        Field::Embedding(_) => todo!(),
+                        _ => todo!(),
+                    });
+                    let res = rhs_matches.fold(value.clone(), |x, y| y.meet(x));
+                    fields.push(Field::Defined(key.clone(), res))
+                },
+                Field::Constraint(_, _, _) => todo!(),
+
+                Field::Pattern(_, _) => todo!(),
+                Field::Embedding(_) => todo!(),
             }
-            fields.push(f.clone())
         }
+
+
+        // // let rhs_value = rhs
+        // //     .iter()
+        // //     .find(|ff| ff.label == f.label) // TODO: consider bulk fields
+        // //     .map_or(Self::Top.into(), |ff| ff.value.clone());
+        // // fields.push(Field {
+        // //     label: f.label.clone(),
+        // //     value: f.value.clone().meet(rhs_value),
+        // // });
+        // for f in rhs.iter() {
+        //     if lhs.iter().any(|ff| ff.label == f.label) {
+        //         // TODO: consider bulk fields
+        //         continue;
+        //     }
+        //     fields.push(f.clone())
+        // }
 
         Self::Struct(fields.into(), false)
     }
@@ -801,8 +822,7 @@ impl Display for Value {
 
             Value::Struct(items, _) => write_separated!(items, "{", ",\n", "}"),
 
-            // Value::List(items) => write_separated!(items, "[", ",\n", "]"),
-            Value::List(items) => f.debug_list().entries(items.iter()).finish(),
+            Value::List(items) => write_separated!(items, "[", ",\n", "]"),
 
             Value::String(None) => write!(f, "string"),
             Value::Bytes(None) => write!(f, "bytes"),
@@ -830,37 +850,33 @@ impl Display for Value {
 impl Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Field::Defined(_, _) => todo!(),
-            Field::Constrained(key, constraint, val) => {
-                let name = match key {
-                    FieldName::Ident(ident) => {
-                        format!(
-                            "{}{}",
-                            match ident.kind {
-                                None => "",
-                                Some(IdentKind::Hidden) => "_",
-                                Some(IdentKind::Definition) => "#",
-                                Some(IdentKind::HiddenDefinition) => "_#",
-                            },
-                            ident.name
-                        )
-                    }
-                    FieldName::String(s) => format!(r#""{}""#, s),
-                };
+            Field::Defined(key, val) => write!(f, "{key}: {val}"),
+            Field::Constraint(key, constraint, val) => {
                 let postfix = match constraint {
-                    None => "",
-                    Some(FieldConstraint::Optional) => "?",
-                    Some(FieldConstraint::Required) => "!",
+                    FieldConstraint::Optional => "?",
+                    FieldConstraint::Required => "!",
                 };
-                write!(f, "{}{}: {}", name, postfix, val)
+                write!(f, "{}{}: {}", key, postfix, val)
             }
             Field::Pattern(pat, val) => write!(f, "[{}]: {}", pat, val("".into())),
             Field::Embedding(v) => Display::fmt(v, f),
         }
-        // match self.label.clone() {
-        //     Label::Single(n, label_type, label_modifier) => {
-        //     },
-        //     Label::Bulk(expr) => write!(f, "[{}]: {}", expr, self.value),
-        // }
+    }
+}
+
+impl Display for FieldName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FieldName::Ident(ident) => {
+                let kind = match ident.kind {
+                    None => "",
+                    Some(IdentKind::Hidden) => "_",
+                    Some(IdentKind::Definition) => "#",
+                    Some(IdentKind::HiddenDefinition) => "_#",
+                };
+                write!(f, "{}{}", kind, ident.name)
+            }
+            FieldName::String(s) => write!(f, r#""{}""#, s),
+        }
     }
 }
