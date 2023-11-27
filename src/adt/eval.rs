@@ -1,6 +1,6 @@
 use crate::{
     adt::environment::{MutableEnvironment, Environment},
-    ast, cue_val,
+    ast::{self, Interpolation}, cue_val,
     value::{Field, Value, FieldName},
 };
 use std::{rc::Rc, cell::RefCell};
@@ -33,8 +33,8 @@ impl Node {
 
 #[derive(Debug, Clone)]
 pub enum Edge {
-    Defined(ast::Ident, NodeRef),
-    Constraint(ast::Ident, ast::FieldConstraint, NodeRef),
+    Defined(Selector, NodeRef),
+    Constraint(Selector, ast::FieldConstraint, NodeRef),
     Pattern(NodeRef, NodeRef),
 }
 
@@ -56,7 +56,7 @@ impl Interpreter {
         let result = Rc::new(RefCell::new(Node::Declarations(source.declarations, env)));
         let mut unfinished = vec![result.clone()];
         while let Some(next) = unfinished.pop() {
-            let (result, more) = interpreter.eval_node(&next.borrow());
+            let (result, more) = interpreter.eval_node(next.clone(), &next.borrow());
             match result {
                 Node::Value(_) => {},
                 _ => unfinished.push(next.clone()),
@@ -74,7 +74,7 @@ impl Interpreter {
         }
     }
 
-    pub fn eval_node(&self, node: &Node) -> (Node, Vec<NodeRef>) {
+    pub fn eval_node(&self, outer: NodeRef, node: &Node) -> (Node, Vec<NodeRef>) {
         println!("eval_node");
         match node {
             Node::Value(_) => unreachable!(),
@@ -82,7 +82,7 @@ impl Interpreter {
             Node::Bottom => todo!(),
 
             Node::Declarations(decls, env) => self.eval_ast_decls(decls.clone(), env.clone()),
-            Node::Expr(expr, env) => self.eval_ast_expr(expr, env.clone()),
+            Node::Expr(expr, env) => self.eval_ast_expr(outer, expr, env.clone()),
 
             Node::Struct(edges, embeddings) => self.eval_struct(edges.clone(), embeddings.clone()),
             Node::List(elems) => self.eval_list(elems.clone()),
@@ -100,11 +100,11 @@ impl Interpreter {
     pub fn eval_struct(&self, edges: Rc<[Edge]>, embeddings: Rc<[NodeRef]>) -> (Node, Vec<NodeRef>) {
         println!("eval_struct");
         let fields: Vec<_> = edges.iter().map(|e| match e {
-            Edge::Defined(name, value) => match &*value.borrow() {
+            Edge::Defined(Selector::Ident(name), value) => match &*value.borrow() {
                 Node::Value(v) => Some(Field::Defined(FieldName::Ident(name.clone()), v.clone())),
                 _ => None
             }
-            Edge::Constraint(name, constraint, value) => match &*value.borrow() {
+            Edge::Constraint(Selector::Ident(name), constraint, value) => match &*value.borrow() {
                 Node::Value(v) => Some(Field::Constraint(FieldName::Ident(name.clone()), constraint.clone(), v.clone())),
                 _ => None
             }
@@ -142,7 +142,14 @@ impl Interpreter {
 
     pub fn eval_reference(&self, reference: NodeRef) -> (Node, Vec<NodeRef>) {
         println!("eval_reference");
-        (todo!(), vec![])
+        return (todo!(), todo!());
+
+        let beep_boop = reference.borrow();
+        match &*beep_boop {
+            Node::Bottom => (Node::Bottom, vec![]),
+            Node::Value(v) => (Node::Value(v.clone()), vec![]),
+            _ => (Node::Reference(reference.clone()), vec![reference.clone()]),
+        }
     }
 
     pub fn eval_selector(&self, source: NodeRef, selector: &Selector) -> (Node, Vec<NodeRef>) {
@@ -177,7 +184,11 @@ impl Interpreter {
                     let value = Node::Expr(f.value.clone(), inner_env.clone()).into_ref();
                     unfinished.push(value.clone());
 
-                    edges.push(self.eval_ast_label(&f.label, value.clone(), inner_env.clone()));
+                    let (edge, todo) = self.eval_ast_label(&f.label, value.clone(), inner_env.clone());
+                    if let Some(item) = todo {
+                        unfinished.push(item);
+                    }
+                    edges.push(edge);
                 }
                 ast::Declaration::Alias(_) => todo!(),
                 ast::Declaration::Comprehension(_) => todo!(),
@@ -193,30 +204,57 @@ impl Interpreter {
         return (Node::Struct(edges.into(), embeddings.into()), unfinished)
     }
 
-    pub fn eval_ast_label(&self, label: &ast::Label, value: NodeRef, env: MutableEnvironment<NodeRef>) -> Edge {
+    pub fn eval_ast_label(&self, label: &ast::Label, value: NodeRef, env: MutableEnvironment<NodeRef>) -> (Edge, Option<NodeRef>) {
         println!("eval_ast_edge");
 
         match label {
-            ast::Label::Ident(n, lm) => {
-                env.borrow_mut().set(n.clone(), value.clone());
+            ast::Label::Single(name, lm) => {
+                let mut todo = None;
+
+                let key = match name {
+                    ast::LabelName::Ident(ident) => {
+                        env.borrow_mut().set(ident.clone(), value.clone());
+                        Selector::Ident(ident.clone())
+                    },
+                    ast::LabelName::String(interpolation) => {
+                        let val = match interpolation {
+                            Interpolation::Simple(str) => Node::Value(Value::String(Some(str.clone())).into()),
+                            Interpolation::Interpolated(_, _) => todo!(),
+                        }.into_ref();
+                        todo = Some(val.clone());
+                        Selector::Interpolation(val.clone())
+                    },
+                    ast::LabelName::Dynamic(expr) => {
+                        let val = Node::Expr(expr.clone(), env).into_ref();
+                        todo = Some(val.clone());
+                        Selector::Interpolation(val.clone())
+                    },
+                };
+
                 if let Some(constraint) = lm {
-                    Edge::Constraint(n.clone(), constraint.clone(), value.clone())
+                    (Edge::Constraint(key, constraint.clone(), value.clone()), todo)
                 } else {
-                    Edge::Defined(n.clone(), value)
+                    (Edge::Defined(key, value), todo)
                 }
             }
             ast::Label::Alias(alias, label) => {
                 env.borrow_mut().set(alias.clone(), value.clone());
                 self.eval_ast_label(label, value.clone(), env)
             }
-            _ => todo!(),
+            ast::Label::Pattern(pat) => {
+                let key = Node::Expr(pat.clone(), env.clone()).into_ref();
+                (Edge::Pattern(key.clone(), value.clone()), Some(key.clone()))
+            },
         }
     }
 
-    pub fn eval_ast_expr(&self, expr: &ast::Expr, env: MutableEnvironment<NodeRef>) -> (Node, Vec<NodeRef>) {
+    pub fn eval_ast_expr(&self, outer: NodeRef, expr: &ast::Expr, env: MutableEnvironment<NodeRef>) -> (Node, Vec<NodeRef>) {
         println!("eval_ast_expr");
         match expr {
-            ast::Expr::Alias(_) => todo!(),
+            ast::Expr::Alias(alis) => {
+                env.borrow_mut().set(alis.ident.clone(), outer);
+                (Node::Expr(alis.expr.clone(), env.clone()), vec![])
+            },
             ast::Expr::Comprehension(_) => todo!(),
             ast::Expr::Ident(n) => {
                 if let Some(val) = env.borrow().get(&n) {
@@ -249,8 +287,8 @@ impl Interpreter {
             ast::Expr::Ellipsis(_) => todo!(),
             ast::Expr::UnaryExpr(_, _) => todo!(),
             ast::Expr::BinaryExpr(lhs, op, rhs) => {
-                let lval = self.eval_ast_expr(lhs, env.clone());
-                let rval = self.eval_ast_expr(rhs, env.clone());
+                let lval = self.eval_ast_expr(outer.clone(), lhs, env.clone());
+                let rval = self.eval_ast_expr(outer.clone(), rhs, env.clone());
 
                 match op {
                     // ast::Operator::Conjunct => lval.meet(rval),
@@ -259,7 +297,7 @@ impl Interpreter {
                     _ => todo!(),
                 }
             }
-            ast::Expr::Parens(e) => self.eval_ast_expr(e, env),
+            ast::Expr::Parens(e) => self.eval_ast_expr(outer, e, env),
             ast::Expr::Selector(e, selector) => {
                 let source = Node::Expr(*e.clone(), env.clone()).into_ref();
                 match *selector.clone() {

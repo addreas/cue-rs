@@ -120,10 +120,15 @@ pub struct LetClause {
 #[derive(Debug, PartialEq, Clone)]
 pub enum Label {
     Alias(Ident, Box<Label>),
-    Ident(Ident, Option<FieldConstraint>),
-    String(Interpolation, Option<FieldConstraint>),
-    Dynamic(Expr, Option<FieldConstraint>),
+    Single(LabelName, Option<FieldConstraint>),
     Pattern(Expr),
+}
+
+#[derive(Debug, PartialEq, Clone)]
+pub enum LabelName {
+    Ident(Ident),
+    String(Interpolation),
+    Dynamic(Expr)
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -174,20 +179,17 @@ pub enum Operator {
 }
 
 impl Label {
-    pub fn ident(x: Ident) -> Self {
-        Self::Ident(x, None)
+    pub fn ident(x: Ident, y: Option<FieldConstraint>) -> Self {
+        Self::Single(LabelName::Ident(x), y)
     }
     pub fn alias(ident: Ident, expr: Label) -> Self {
         Self::Alias(ident, Box::new(expr))
     }
-    pub fn string(s: Rc<str>) -> Self {
-        Self::String(Interpolation::Simple(s), None)
+    pub fn string(s: Interpolation, y: Option<FieldConstraint>) -> Self {
+        Self::Single(LabelName::String(s), y)
     }
-    pub fn string_interpolation(strings: Rc<[Rc<str>]>, interpolations: Rc<[Expr]>) -> Self {
-        Self::String(Interpolation::Interpolated(strings, interpolations), None)
-    }
-    pub fn dynamic(x: Expr) -> Self {
-        Self::Dynamic(x, None)
+    pub fn dynamic(x: Expr, y: Option<FieldConstraint>) -> Self {
+        Self::Single(LabelName::Dynamic(x), None)
     }
     pub fn pattern(x: Expr) -> Self {
         Self::Pattern(x)

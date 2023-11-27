@@ -319,16 +319,16 @@ impl CUEParser {
     }
     fn LabelExpr(input: Pair<Rule>) -> Result<ast::Label, Error> {
         Ok(match_pairs!(input.into_inner(), {
-            [identifier(i)] => ast::Label::Ident(i, None),
-            [identifier(i), LabelModifier(m)] => ast::Label::Ident(i, Some(m?)),
+            [identifier(i)] => ast::Label::ident(i, None),
+            [identifier(i), LabelModifier(m)] => ast::Label::ident(i, Some(m?)),
 
-            [string_lit_simple(s)] => ast::Label::String(s?, None),
-            [string_lit_simple(s), LabelModifier(m)] => ast::Label::String(s?, Some(m?)),
+            [string_lit_simple(s)] => ast::Label::string(s?, None),
+            [string_lit_simple(s), LabelModifier(m)] => ast::Label::string(s?, Some(m?)),
 
             [AliasExpr(a)] => ast::Label::Pattern(a?),
 
-            [Expression(e)] => ast::Label::Dynamic(e?, None),
-            [Expression(e), LabelModifier(m)] => ast::Label::Dynamic(e?, Some(m?)),
+            [Expression(e)] => ast::Label::dynamic(e?, None),
+            [Expression(e), LabelModifier(m)] => ast::Label::dynamic(e?, Some(m?)),
         }))
     }
     fn LabelModifier(input: Pair<Rule>) -> Result<ast::FieldConstraint, Error> {
@@ -860,28 +860,19 @@ fn test_strings_interpolated() {
 fn test_label() {
     assert_eq!(
         parse_single!(Label, "identifier"),
-        Ok(ast::Label::Ident(
-            ast::Ident {
-                name: "identifier".into(),
-                kind: None,
-            },
-            None
-        ))
+        Ok(ast::Label::ident("identifier".into(), None))
     );
     assert_eq!(
         parse_single!(Label, "\"quoted\""),
-        Ok(ast::Label::String(
+        Ok(ast::Label::string(
             parse_single!(string_lit_simple, "\"quoted\"").unwrap(),
             None
         ))
     );
     assert_eq!(
         parse_single!(Label, "(parenthesis)"),
-        Ok(ast::Label::Dynamic(
-            ast::Expr::Ident(ast::Ident {
-                name: "parenthesis".into(),
-                kind: None
-            }),
+        Ok(ast::Label::dynamic(
+            ast::Expr::Ident("parenthesis".into()),
             None
         ))
     );
