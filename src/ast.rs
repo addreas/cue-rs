@@ -132,7 +132,7 @@ pub enum Selector {
     String(Interpolation),
 }
 
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum FieldConstraint {
     Optional,
     Required,
@@ -325,5 +325,18 @@ impl From<&str> for Ident {
             name: name.into(),
             kind,
         }
+    }
+}
+
+impl Ident {
+    pub fn as_str(&self) -> Rc<str> {
+        let kind = match self.kind {
+            None => "",
+            Some(IdentKind::Hidden) => "_",
+            Some(IdentKind::Definition) => "#",
+            Some(IdentKind::HiddenDefinition) => "_#",
+        };
+
+        format!("{kind}{}", self.name).into()
     }
 }

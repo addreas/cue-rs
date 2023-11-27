@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::{fmt::Debug, fmt::Display, rc::Rc};
 
 use regex::Regex;
@@ -6,7 +6,7 @@ use regex::Regex;
 use crate::ast;
 
 use super::adt::op::RelOp;
-use super::ast::{FieldConstraint, IdentKind};
+use super::ast::FieldConstraint;
 use super::match_basic;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -52,6 +52,18 @@ pub enum Field {
 pub enum FieldName {
     Ident(ast::Ident),
     String(Rc<str>),
+}
+
+impl FieldName {
+    pub fn as_str(&self) -> Rc<str> {
+        match self {
+            FieldName::Ident(ident) => ident.as_str(),
+            FieldName::String(str) => str.clone(),
+        }
+    }
+    pub fn as_value(&self) -> Rc<Value> {
+        Value::String(Some(self.as_str())).into()
+    }
 }
 
 impl Value {
@@ -312,44 +324,88 @@ impl Value {
     fn meet_structs(lhs: Rc<[Field]>, rhs: Rc<[Field]>) -> Value {
         let mut fields: Vec<Field> = vec![];
 
+        let mut seen: HashSet<FieldName> = Default::default();
+
         for f in lhs.iter() {
             match f {
                 Field::Defined(key, value) => {
-                    let rhs_matches = rhs.iter().filter_map(|ff| match ff {
-                        Field::Defined(ffkey, val) if ffkey == key => Some(val.clone()),
-                        Field::Constraint(ffkey, _, val) if ffkey == key => Some(val.clone()),
-                        Field::Pattern(_, _) => todo!(),
-                        Field::Embedding(_) => todo!(),
-                        _ => todo!(),
-                    });
-                    let res = rhs_matches.fold(value.clone(), |x, y| y.meet(x));
-                    fields.push(Field::Defined(key.clone(), res))
+                    fields.push(Self::meet_struct_field_defined(key, rhs.clone(), value.clone()));
+                    seen.insert(key.clone());
                 },
-                Field::Constraint(_, _, _) => todo!(),
+                Field::Constraint(key, m, value) => {
+                    fields.push(Self::meet_struct_field_constraint(key, *m, rhs.clone(), value.clone()));
+                    seen.insert(key.clone());
+                },
 
-                Field::Pattern(_, _) => todo!(),
-                Field::Embedding(_) => todo!(),
+                f => fields.push(f.clone()),
             }
         }
 
+        for f in rhs.iter() {
+            match f {
+                Field::Defined(key, value) => {
+                    if seen.contains(key) {
+                        continue
+                    }
+                    fields.push(Self::meet_struct_field_defined(key, lhs.clone(), value.clone()));
+                    seen.insert(key.clone());
+                },
+                Field::Constraint(key, m, value) => {
+                    if seen.contains(key) {
+                        continue
+                    }
+                    fields.push(Self::meet_struct_field_constraint(key, *m, lhs.clone(), value.clone()));
 
-        // // let rhs_value = rhs
-        // //     .iter()
-        // //     .find(|ff| ff.label == f.label) // TODO: consider bulk fields
-        // //     .map_or(Self::Top.into(), |ff| ff.value.clone());
-        // // fields.push(Field {
-        // //     label: f.label.clone(),
-        // //     value: f.value.clone().meet(rhs_value),
-        // // });
-        // for f in rhs.iter() {
-        //     if lhs.iter().any(|ff| ff.label == f.label) {
-        //         // TODO: consider bulk fields
-        //         continue;
-        //     }
-        //     fields.push(f.clone())
-        // }
+                    seen.insert(key.clone());
+                },
+
+                f => fields.push(f.clone()),
+            }
+        }
 
         Self::Struct(fields.into(), false)
+    }
+
+    fn meet_struct_field_defined(key: &FieldName, other: Rc<[Field]>, value: Rc<Value>) -> Field {
+        let other_matches = other.iter().filter_map(|ff| match ff {
+            Field::Defined(ffkey, val) if ffkey == key => Some(val.clone()),
+            Field::Constraint(ffkey, _, val) if ffkey == key => Some(val.clone()),
+            Field::Pattern(pattern, val) if pattern.clone().meet(key.as_value()) != Value::Bottom.into() => {
+                Some(val(key.as_str()))
+            },
+            _ => None,
+        });
+        let res = other_matches.fold(value.clone(), |x, y| y.meet(x));
+        Field::Defined(key.clone(), res)
+    }
+
+    fn meet_struct_field_constraint(key: &FieldName, modifier: FieldConstraint, other: Rc<[Field]>, value: Rc<Value>) -> Field {
+        let mut defined = false;
+        let mut modifier = modifier;
+        let rhs_matches = other.iter().filter_map(|ff| match ff {
+            Field::Defined(ffkey, val) if ffkey == key => {
+                defined = true;
+                Some(val.clone())
+            },
+            Field::Constraint(ffkey, m, val) if ffkey == key => {
+                if modifier == FieldConstraint::Optional {
+                    modifier = *m
+                };
+                Some(val.clone())
+            },
+            Field::Pattern(pattern, val) if pattern.clone().meet(key.as_value()) != Value::Bottom.into() => {
+                Some(val(key.as_str()))
+            },
+            _ => None,
+        });
+
+        let res = rhs_matches.fold(value.clone(), |x, y| y.meet(x));
+
+        if defined {
+            Field::Defined(key.clone(), res)
+        } else {
+            Field::Constraint(key.clone(), modifier, res)
+        }
     }
 
     fn meet_lists(lhs: Rc<[Rc<Value>]>, rhs: Rc<[Rc<Value>]>) -> Value {
@@ -867,15 +923,7 @@ impl Display for Field {
 impl Display for FieldName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FieldName::Ident(ident) => {
-                let kind = match ident.kind {
-                    None => "",
-                    Some(IdentKind::Hidden) => "_",
-                    Some(IdentKind::Definition) => "#",
-                    Some(IdentKind::HiddenDefinition) => "_#",
-                };
-                write!(f, "{}{}", kind, ident.name)
-            }
+            FieldName::Ident(ident) => write!(f, "{}", ident.as_str()),
             FieldName::String(s) => write!(f, r#""{}""#, s),
         }
     }
