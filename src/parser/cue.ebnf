@@ -18,7 +18,7 @@ decimal_lit = "0" | ( "1" … "9" ) { [ "_" ] decimal_digit } .
 decimals    = decimal_digit { [ "_" ] decimal_digit } .
 si_it       = decimals [ "." decimals ] multiplier |
               "." decimals  multiplier .
-binary_lit  = "0b" binary_digit { binary_digit } .
+binary_lit  = "0b" binary_digit { [ "_" ] binary_digit } .
 hex_lit     = "0" ( "x" | "X" ) hex_digit { [ "_" ] hex_digit } .
 octal_lit   = "0o" octal_digit { [ "_" ] octal_digit } .
 multiplier  = ( "K" | "M" | "G" | "T" | "P" ) [ "i" ]
@@ -53,14 +53,20 @@ multiline_bytes_lit  = "'''" newline
                              { unicode_value | interpolation | byte_value | newline }
                              newline "'''" .
 
+bottom_lit = "_|_" .
+
+null_lit   = "null" .
+
+bool_lit = "true" | "false" .
+
 StructLit       = "{" { Declaration "," } "}" .
 Declaration     = Field | Ellipsis | Embedding | LetClause | attribute .
 Ellipsis        = "..." [ Expression ] .
 Embedding       = Comprehension | AliasExpr .
 Field           = Label ":" { Label ":" } AliasExpr { attribute } .
 Label           = [ identifier "=" ] LabelExpr .
-LabelExpr       = LabelName [ "?" ] | "[" AliasExpr "]" .
-LabelName       = identifier | simple_string_lit  .
+LabelExpr       = LabelName [ "?" | "!" ] | "[" AliasExpr "]" .
+LabelName       = identifier | simple_string_lit | "(" AliasExpr ")" .
 
 attribute       = "@" identifier "(" attr_tokens ")" .
 attr_tokens     = { attr_token |
@@ -68,7 +74,6 @@ attr_tokens     = { attr_token |
                     "[" attr_tokens "]" |
                     "{" attr_tokens "}" } .
 attr_token      = /* any token except '(', ')', '[', ']', '{', or '}' */
-
 
 AliasExpr  = [ identifier "=" ] Expression .
 
@@ -92,6 +97,7 @@ PrimaryExpr =
 
 Selector       = "." (identifier | simple_string_lit) .
 Index          = "[" Expression "]" .
+Slice          = "[" Expression ":" Expression "]" .
 Argument       = Expression .
 Arguments      = "(" [ ( Argument { "," Argument } ) [ "," ] ] ")" .
 
@@ -122,5 +128,3 @@ ImportDecl       = "import" ( ImportSpec | "(" { ImportSpec "," } ")" ) .
 ImportSpec       = [ PackageName ] ImportPath .
 ImportLocation   = { unicode_value } .
 ImportPath       = `"` ImportLocation [ ":" identifier ] `"` .
-
-

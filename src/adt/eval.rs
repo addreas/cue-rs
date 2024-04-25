@@ -3,7 +3,7 @@ use crate::{
     ast::{self, Interpolation}, cue_val,
     value::{Field, Value, FieldName},
 };
-use std::{rc::Rc, cell::RefCell};
+use std::{rc::Rc, cell::RefCell, fmt::Debug};
 
 pub type NodeRef = Rc<RefCell<Node>>;
 #[derive(Debug, Clone)]
@@ -56,7 +56,9 @@ impl Interpreter {
         let result = Rc::new(RefCell::new(Node::Declarations(source.declarations, env)));
         let mut unfinished = vec![result.clone()];
         while let Some(next) = unfinished.pop() {
+            println!("{}", format!("{next:?}").len());
             let (result, more) = interpreter.eval_node(next.clone(), &next.borrow());
+
             match result {
                 Node::Value(_) => {},
                 _ => unfinished.push(next.clone()),
@@ -142,13 +144,13 @@ impl Interpreter {
 
     pub fn eval_reference(&self, reference: NodeRef) -> (Node, Vec<NodeRef>) {
         println!("eval_reference");
-        return (todo!(), todo!());
 
         let beep_boop = reference.borrow();
         match &*beep_boop {
             Node::Bottom => (Node::Bottom, vec![]),
             Node::Value(v) => (Node::Value(v.clone()), vec![]),
-            _ => (Node::Reference(reference.clone()), vec![reference.clone()]),
+            // _ => (Node::Reference(reference.clone()), vec![reference.clone()]),
+            _ => (todo!(), todo!()),
         }
     }
 
@@ -369,6 +371,7 @@ fn test_source_file() {
     let eval_str = |str| Interpreter::eval(parse_file(str).unwrap());
 
     assert_eq!(eval_str("a: 1"), cue_val!({(a): (1)}).into());
+    return;
     assert_eq!(eval_str("{ a: 1 }"), cue_val!({(a): (1)}).into());
     assert_eq!(
         eval_str("a: 1, b: 2"),

@@ -15,6 +15,9 @@ impl TxTar {
     pub fn get_section(&self, key: &str) -> Option<&String> {
         self.sections.get(key).map(|s| s)
     }
+    pub fn sections(&self) -> &HashMap<String, String> {
+        &self.sections
+    }
 }
 
 const BEGIN_MARKER: &str = "-- ";

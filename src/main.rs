@@ -1,9 +1,6 @@
-#![feature(arc_unwrap_or_clone)]
 #![feature(iter_intersperse)]
 #![feature(iterator_try_collect)]
 #![feature(iterator_try_reduce)]
-#![feature(slice_group_by)]
-#![feature(result_option_inspect)]
 #![feature(const_trait_impl)]
 #![feature(stmt_expr_attributes)]
 pub mod adt;
@@ -12,12 +9,12 @@ pub mod ast;
 pub mod parser;
 pub mod value;
 pub mod txtar;
-
 extern crate pest;
 #[allow(unused_imports)]
 #[macro_use]
 extern crate pest_derive;
 
+mod simple;
 fn main() {
     // let expressions = vec![
     //     "-273.15",
