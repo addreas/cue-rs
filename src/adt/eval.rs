@@ -3,7 +3,7 @@ use crate::{
     ast::{self, Interpolation}, cue_val,
     value::{Field, Value, FieldName},
 };
-use std::{rc::Rc, cell::RefCell, fmt::Debug};
+use std::{cell::RefCell, fmt::{Debug, Display}, rc::Rc, vec};
 
 pub type NodeRef = Rc<RefCell<Node>>;
 #[derive(Debug, Clone)]
@@ -56,12 +56,19 @@ impl Interpreter {
         let result = Rc::new(RefCell::new(Node::Declarations(source.declarations, env)));
         let mut unfinished = vec![result.clone()];
         while let Some(next) = unfinished.pop() {
-            println!("{}", format!("{next:?}").len());
+            println!("next: {:?}", next.borrow());
             let (result, more) = interpreter.eval_node(next.clone(), &next.borrow());
 
             match result {
                 Node::Value(_) => {},
-                _ => unfinished.push(next.clone()),
+                _ => {
+                    println!("unfinished push: {:?}", result);
+                    println!("unfinished push, {}", unfinished.len());
+                    if unfinished.len() == 13 {
+                        break
+                    }
+                    unfinished.push(next.clone())
+                },
             };
             unfinished.extend(more);
             next.replace(result);
@@ -70,7 +77,8 @@ impl Interpreter {
         match &*result.clone().borrow() {
             Node::Value(res) => res.clone(),
             e => {
-                println!("e: {e:?}");
+                println!("e: {e:#?}");
+                println!("ee: {unfinished:#?}");
                 todo!()
             },
         }
@@ -108,6 +116,10 @@ impl Interpreter {
             }
             Edge::Constraint(Selector::Ident(name), constraint, value) => match &*value.borrow() {
                 Node::Value(v) => Some(Field::Constraint(FieldName::Ident(name.clone()), constraint.clone(), v.clone())),
+                _ => None
+            }
+            Edge::Pattern(pat, val) => match &*pat.borrow() {
+                Node::Value(v) => Some(Field::Pattern(v.clone(), |_| Value::Bottom.into())),
                 _ => None
             }
             _ => None
@@ -149,14 +161,55 @@ impl Interpreter {
         match &*beep_boop {
             Node::Bottom => (Node::Bottom, vec![]),
             Node::Value(v) => (Node::Value(v.clone()), vec![]),
-            // _ => (Node::Reference(reference.clone()), vec![reference.clone()]),
+            Node::Reference(r) => self.eval_node(r.clone(), &r.borrow()),
+            Node::Expr(expr, env) => self.eval_ast_expr(reference.clone(), expr, env.clone()),
+            Node::Selector(source, selector) => self.eval_selector(source.clone(), selector),
+            Node::Struct(edges, embeddings) => self.eval_struct(edges.clone(), embeddings.clone()),
+            v => {
+                print!("todo: {:?}", v);
+                (todo!(), todo!())
+            }
             _ => (todo!(), todo!()),
         }
     }
 
     pub fn eval_selector(&self, source: NodeRef, selector: &Selector) -> (Node, Vec<NodeRef>) {
         println!("eval_selector");
-        (todo!(), vec![])
+        match selector {
+            Selector::Ident(ident) => match &*source.borrow() {
+                Node::Value(val) => match &*val.clone() {
+                    Value::Struct(fields, _) => {
+                        let selected = fields.iter().find_map(|f| {
+                            match f {
+                                Field::Defined(name, value) => {
+                                match name {
+                                    FieldName::Ident(m) if m == ident => {
+                                        Some(value.clone())
+                                    }
+                                    FieldName::String(str) if str.clone() == ident.as_str() => {
+                                        Some(value.clone())
+                                    }
+                                    _ => None
+                                }
+                                }
+                                _ => None
+                            }
+                        });
+
+                        if let Some(v) = selected {
+                            (Node::Value(v), vec![])
+                        } else {
+                            (Node::Bottom, vec![])
+                        }
+                    },
+                    _ => todo!(),
+                },
+                Node::Struct(fields, _) => todo!(),
+                _ => todo!(),
+            },
+            Selector::Interpolation(_) => todo!(),
+        }
+        // (todo!(), vec![])
     }
 
     pub fn eval_index(&self, source: NodeRef, index: NodeRef) -> (Node, Vec<NodeRef>) {
@@ -365,13 +418,12 @@ impl Interpreter {
 }
 
 #[test]
-fn test_source_file() {
+fn test_source_file1() {
     use crate::cue_val;
     use crate::parser::parse_file;
     let eval_str = |str| Interpreter::eval(parse_file(str).unwrap());
 
     assert_eq!(eval_str("a: 1"), cue_val!({(a): (1)}).into());
-    return;
     assert_eq!(eval_str("{ a: 1 }"), cue_val!({(a): (1)}).into());
     assert_eq!(
         eval_str("a: 1, b: 2"),
@@ -386,6 +438,13 @@ fn test_source_file() {
         ),
         cue_val!({(a): (1), (b): (2)}).into()
     );
+}
+
+#[test]
+fn test_source_file2() {
+    use crate::cue_val;
+    use crate::parser::parse_file;
+    let eval_str = |str| Interpreter::eval(parse_file(str).unwrap());
     assert_eq!(
         eval_str(
             r#"{
@@ -419,6 +478,14 @@ fn test_source_file() {
         })
         .into()
     );
+}
+
+#[test]
+fn test_source_file3() {
+    use crate::cue_val;
+    use crate::parser::parse_file;
+    let eval_str = |str| Interpreter::eval(parse_file(str).unwrap());
+
     assert_eq!(
         eval_str(
             r#"{
@@ -455,6 +522,50 @@ fn test_source_file() {
             (x): ({
                 (x): (3),
                 (y): (2)
+            })
+        })
+        .into()
+    );
+}
+
+#[test]
+fn test_source_file4() {
+    use crate::cue_val;
+    use crate::parser::parse_file;
+    let eval_str = |str| Interpreter::eval(parse_file(str).unwrap());
+
+    assert_eq!(
+        eval_str(
+            r#"{
+                a: b: c: 1
+
+                x: a.b.c
+            }"#
+        ),
+        cue_val!({
+            (a): ({
+                (b): ({
+                    (c): (1)
+                })
+            }),
+            (x): (1)
+        })
+        .into()
+    );
+    assert_eq!(
+        eval_str(
+            r#"{
+                x: a.b.c
+
+                a: b: c: 1
+            }"#
+        ),
+        cue_val!({
+            (x): (1),
+            (a): ({
+                (b): ({
+                    (c): (1)
+                })
             })
         })
         .into()

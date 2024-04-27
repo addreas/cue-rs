@@ -1,15 +1,21 @@
 use crate::ast::Ident;
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt::Debug, rc::Rc};
 
 pub type MutableEnvironment<T> = Rc<RefCell<Environment<T>>>;
 
-#[derive(Debug, PartialEq, Clone, Default)]
+#[derive(PartialEq, Clone, Default)]
 pub struct Environment<T> {
     parent: Option<MutableEnvironment<T>>,
     items: HashMap<Ident, T>,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+impl<T> Debug for Environment<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Environment<T>")
+    }
+}
+
+#[derive(PartialEq, Clone)]
 pub struct EnvironmentRef<'a, T> {
     inner: &'a Environment<T>
 }

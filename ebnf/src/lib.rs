@@ -103,7 +103,7 @@ impl Parse for Alternative {
 enum Term {
     ProductionName(Ident),
     Token(LitStr),
-    TokenRange(LitStr, Token![...], LitStr),
+    TokenRange(LitStr, LitStr),
     Group(Expression),
     Option(Expression),
     Repetition(Expression),
@@ -118,9 +118,9 @@ impl Parse for Term {
             if !input.lookahead1().peek(Token![...]) {
                 Ok(Term::Token(first))
             } else {
-                let range: Token![...] = input.parse()?;
+                let _range: Token![...] = input.parse()?;
                 let second = input.parse()?;
-                Ok(Term::TokenRange(first, range, second))
+                Ok(Term::TokenRange(first, second))
             }
         } else if lookahead.peek(token::Paren) {
             let content;

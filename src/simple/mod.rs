@@ -3,6 +3,7 @@ use json::JsonValue;
 
 mod parser;
 mod ebpf;
+mod pratt;
 
 #[derive(Debug)]
 enum Op {
