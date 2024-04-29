@@ -3,9 +3,10 @@ use crate::{
     ast::{self, Interpolation}, cue_val,
     value::{Field, Value, FieldName},
 };
-use std::{cell::RefCell, fmt::{Debug, Display}, rc::Rc, vec};
+use std::{cell::RefCell, fmt::Debug, rc::{Rc, Weak}, vec};
 
 pub type NodeRef = Rc<RefCell<Node>>;
+pub type WeakNodeRef = Weak<RefCell<Node>>;
 #[derive(Debug, Clone)]
 pub enum Node {
     Bottom,
@@ -15,7 +16,7 @@ pub enum Node {
     List(Rc<[NodeRef]>),
     Struct(Rc<[Edge]>, Rc<[NodeRef]>),
     Selector(NodeRef, Selector),
-    Reference(NodeRef),
+    Reference(WeakNodeRef),
     Index(NodeRef, NodeRef),
     Slice(NodeRef, Option<NodeRef>, Option<NodeRef>),
     Guard(NodeRef, NodeRef),
@@ -56,21 +57,25 @@ impl Interpreter {
         let result = Rc::new(RefCell::new(Node::Declarations(source.declarations, env)));
         let mut unfinished = vec![result.clone()];
         while let Some(next) = unfinished.pop() {
-            println!("next: {:?}", next.borrow());
+            println!("unfinished len: {}", unfinished.len());
+            // println!("next: {:?}", next.borrow());
             let (result, more) = interpreter.eval_node(next.clone(), &next.borrow());
 
             match result {
                 Node::Value(_) => {},
                 _ => {
-                    println!("unfinished push: {:?}", result);
-                    println!("unfinished push, {}", unfinished.len());
+                    println!("unfinished push result: {:#?}", result);
+                    println!("unfinished push next: {:#?}", next);
                     if unfinished.len() == 13 {
                         break
                     }
                     unfinished.push(next.clone())
                 },
             };
-            unfinished.extend(more);
+            if more.len() > 0 {
+                println!("unfinished extend: {:#?}", more);
+                unfinished.extend(more);
+            }
             next.replace(result);
         }
 
@@ -154,15 +159,20 @@ impl Interpreter {
         (todo!(), vec![])
     }
 
-    pub fn eval_reference(&self, reference: NodeRef) -> (Node, Vec<NodeRef>) {
+    pub fn eval_reference(&self, reference: WeakNodeRef) -> (Node, Vec<NodeRef>) {
         println!("eval_reference");
-
-        let beep_boop = reference.borrow();
+        let reff = reference.upgrade().expect("reference should exist in env anyway");
+        let beep_boop = reff.borrow();
         match &*beep_boop {
             Node::Bottom => (Node::Bottom, vec![]),
             Node::Value(v) => (Node::Value(v.clone()), vec![]),
-            Node::Reference(r) => self.eval_node(r.clone(), &r.borrow()),
-            Node::Expr(expr, env) => self.eval_ast_expr(reference.clone(), expr, env.clone()),
+            Node::Reference(r) if !self.is_cycle(reference.clone(), r.clone()) => {
+                let reff = r.upgrade().expect("shoudl exist in env");
+                let b = reff.borrow();
+                self.eval_node(reff.clone(), &b)
+            },
+            Node::Reference(r) => todo!("reference cycle"),
+            Node::Expr(expr, env) => self.eval_ast_expr(reff.clone(), expr, env.clone()),
             Node::Selector(source, selector) => self.eval_selector(source.clone(), selector),
             Node::Struct(edges, embeddings) => self.eval_struct(edges.clone(), embeddings.clone()),
             v => {
@@ -170,6 +180,15 @@ impl Interpreter {
                 (todo!(), todo!())
             }
             _ => (todo!(), todo!()),
+        }
+    }
+
+
+    fn is_cycle(&self, root: WeakNodeRef, reference: WeakNodeRef) -> bool {
+        match &*(reference.upgrade().unwrap().borrow()) {
+            Node::Reference(r) if r.clone().into_raw() == root.clone().into_raw() => true,
+            Node::Reference(r) => self.is_cycle(root, r.clone()),
+            _ => false,
         }
     }
 
@@ -313,7 +332,7 @@ impl Interpreter {
             ast::Expr::Comprehension(_) => todo!(),
             ast::Expr::Ident(n) => {
                 if let Some(val) = env.borrow().get(&n) {
-                    (Node::Reference(val.clone()), vec![])
+                    (Node::Reference(Rc::downgrade(&val)), vec![])
                 } else {
                     (Node::Bottom, vec![])
                 }
@@ -566,6 +585,36 @@ fn test_source_file4() {
                 (b): ({
                     (c): (1)
                 })
+            })
+        })
+        .into()
+    );
+}
+
+#[test]
+fn test_source_file5() {
+    use crate::cue_val;
+    use crate::parser::parse_file;
+    let eval_str = |str| Interpreter::eval(parse_file(str).unwrap());
+
+    assert_eq!(
+        eval_str(
+            r#"{
+                a: b: 1
+                x: y: 2
+
+                a: x
+                x: a
+            }"#
+        ),
+        cue_val!({
+            (a): ({
+                (b): (1),
+                (y): (2)
+            }),
+            (x): ({
+                (b): (1),
+                (y): (2)
             })
         })
         .into()
